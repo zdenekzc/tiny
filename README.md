@@ -198,9 +198,10 @@ After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
   called, `%f` has no default precision, `sscanf("%hd")` is broken,
   `dlsym(RTLD_DEFAULT, …)` crashes. The shim and mc avoid all of these.
 - **Examples**: `avl.c`, `btree.c`, `queens.c`, `heapsort.c`, `knight.c`,
-  `quicksort.c`, `towers.c` are C++ (constructors, references, `const int N` as
-  an array size) — TinyCC has only a C frontend, so only `tcc_hello.c` and
-  `tcc_test.c` compile. The rest are meant to be browsed in `mc`.
+  `quicksort.c`, `towers.c` are C++ despite the `.c` suffix (constructors,
+  references, class names without `struct`, `const int N` as an array size) —
+  TinyCC has only a C frontend, so only `tcc_hello.c` and `tcc_test.c`
+  compile. The rest are meant to be browsed in `mc`.
 
 ## License
 
