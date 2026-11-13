@@ -122,7 +122,7 @@ tiny/
 ├─ mkshare.sh              # ext2 image from _build/push
 ├─ toaru-vm.sh             # start/stop/send/log/status/mon
 ├─ toaru-elfpad.py         # ELF format check for the ToaruOS loader
-├─ toaruos-ext2-sparse-bug.md  # upstream bug report (ext2 + sparse files)
+├─ toaruos-ext2-sparse-bug.md  # ext2 sparse-file bug report (upstream is archived)
 ├─ _build/                 # downloaded material and artifacts (safe to delete)
 │   ├─ download/           # ISO, ToaruOS sources, tinycc, nuklear.h
 │   ├─ tcc-toaru/          # cross tcc, sysroot, tcc-guest, test programs

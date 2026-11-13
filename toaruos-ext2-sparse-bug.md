@@ -1,6 +1,8 @@
 # ext2: sparse files are read incorrectly (two independent defects)
 
-*Prepared 2026-11-13. Ready to be filed against `klange/toaruos`.*
+> **Status (2026-11-13):** `klange/toaruos` was archived by its owner on
+> 2026-11-09 and is read-only, so GitHub no longer accepts new issues there.
+> This report is kept here as a reference until an upstream tracker exists again.
 
 ## Summary
 
