@@ -1,0 +1,166 @@
+diff --git a/dialog.c b/dialog.c
+index 20e4861..e50db27 100644
+--- a/dialog.c
++++ b/dialog.c
+@@ -519,13 +519,11 @@ int show_chmod_dialog(const char *name, const struct stat *info, mode_t *mode, m
+     // Keep the login name held by main() intact: getpwuid() shares static storage.
+     char owner[256], group[256], lookup[CMD_MAX];
+     struct passwd owner_entry, *owner_info=NULL;
+-    struct group group_entry, *group_info=NULL;
++    /* struct group group_entry, *group_info=NULL; */
+     if (getpwuid_r(info->st_uid, &owner_entry, lookup, sizeof(lookup), &owner_info) == 0 && owner_info)
+         snprintf(owner, sizeof(owner), "%s", owner_info->pw_name);
+     else snprintf(owner, sizeof(owner), "%lu", (unsigned long)info->st_uid);
+-    if (getgrgid_r(info->st_gid, &group_entry, lookup, sizeof(lookup), &group_info) == 0 && group_info)
+-        snprintf(group, sizeof(group), "%s", group_info->gr_name);
+-    else snprintf(group, sizeof(group), "%lu", (unsigned long)info->st_gid);
++    snprintf(group, sizeof(group), "%lu", (unsigned long)info->st_gid);
+ 
+     int focus=0, pressed=-1, action=CHMOD_CANCEL;
+     while (1) {
+diff --git a/includes.h b/includes.h
+index 1497b1a..2aa09c9 100644
+--- a/includes.h
++++ b/includes.h
+@@ -5,9 +5,18 @@
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <getopt.h>
+-#include <grp.h>
++/* #include <grp.h> */
+ #include <locale.h>
+ #include <limits.h>
++#ifndef MB_LEN_MAX
++#define MB_LEN_MAX 16
++#endif
++#ifndef MB_CUR_MAX
++#define MB_CUR_MAX 1
++#endif
++#ifndef INT_MAX
++#define INT_MAX 2147483647
++#endif
+ #include <ncurses.h>
+ #include <pwd.h>
+ #include <signal.h>
+@@ -17,18 +26,68 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/mman.h>
++#ifndef PROT_READ
++#define PROT_READ 0
++#endif
++#ifndef PROT_WRITE
++#define PROT_WRITE 0
++#endif
++#ifndef MAP_PRIVATE
++#define MAP_PRIVATE 0
++#endif
++#ifndef MAP_SHARED
++#define MAP_SHARED 0
++#endif
++#ifndef MAP_FAILED
++#define MAP_FAILED ((void*)-1)
++#endif
++static inline void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) { (void)addr; (void)length; (void)prot; (void)flags; (void)fd; (void)offset; return NULL; }
++static inline int munmap(void *addr, size_t length) { (void)addr; (void)length; return 0; }
+ #include <sys/stat.h>
+-#include <sys/syscall.h>
++/* #include <sys/syscall.h> */
+ #include <sys/time.h>
+ #include <sys/types.h>
+ #include <sys/utsname.h>
+ #include <sys/wait.h>
+ #include <time.h>
+ #include <unistd.h>
++#include <stdbool.h>
+ #include <wchar.h>
+-#include <wctype.h>
++typedef int mbstate_t;
++static inline size_t mbrtowc(wchar_t *pwc, const char *s, size_t n, mbstate_t *ps) {
++    if (n == 0) return (size_t)-2;
++    unsigned char c = (unsigned char)s[0];
++    if (c < 0x80) {
++        if (pwc) *pwc = c;
++        return 1;
++    }
++    if (pwc) *pwc = L'?';
++    return 1;
++}
++static inline size_t wcrtomb(char *s, wchar_t wc, mbstate_t *ps) {
++    if (s) {
++        *s = (char)(wc & 0xFF);
++        return 1;
++    }
++    return 1;
++}
++/* #include <wctype.h> */
++#define iswalnum(c) isalnum((unsigned char)(c))
++#define iswprint(c) isprint((unsigned char)(c))
++#define fsync(fd) 0
++#define towlower(c) ((wint_t)(c))
++static inline void timersub(const struct timeval *a, const struct timeval *b, struct timeval *res) { res->tv_sec = a->tv_sec - b->tv_sec; res->tv_usec = a->tv_usec - b->tv_usec; if (res->tv_usec < 0) { res->tv_sec -= 1; res->tv_usec += 1000000; } }
++static inline int wenclose(WINDOW *win, int y, int x) { return 0; }
++static inline int wcswidth(const wchar_t *pwcs, size_t n) {
++    int width = 0;
++    for (size_t i = 0; i < n && pwcs[i]; ++i) {
++        int w = wcwidth(pwcs[i]);
++        if (w > 0) width += w;
++    }
++    return width;
++}
+ 
+ // Older libc headers expose the rename flags only through Linux headers.
+ #ifndef RENAME_NOREPLACE
+-#include <linux/fs.h>
++/* #include <linux/fs.h> */
+ #endif
+diff --git a/operations.c b/operations.c
+index 06b0e7a..241f8f7 100644
+--- a/operations.c
++++ b/operations.c
+@@ -373,23 +373,7 @@ int recursive_operation(const char *src, const char *tgt, operationContext *cont
+         }
+     }
+ 
+-    // A cross-filesystem move must preserve metadata before removing any source.
+-    if (operation == copy_operation && context->moving)
+-    {
+-        for (;;)
+-        {
+-            struct stat source;
+-            if (lstat(src, &source) == 0)
+-            {
+-                struct timespec times[]={source.st_atim, source.st_mtim};
+-                if (lchown(tgt, source.st_uid, source.st_gid) == 0 &&
+-                    (S_ISLNK(source.st_mode) || chmod(tgt, source.st_mode & 07777) == 0) &&
+-                    utimensat(AT_FDCWD, tgt, times, AT_SYMLINK_NOFOLLOW) == 0) break;
+-            }
+-            int decision=operation_error(SPRINTF("Cannot preserve metadata:\n%s", tgt), context);
+-            if (decision != OPERATION_RETRY) return decision;
+-        }
+-    }
++    // Metadata preservation (timestamps, ownership) not supported on ToaruOS; skip.
+ 
+     return OPERATION_OK;
+ }
+diff --git a/view_edit.c b/view_edit.c
+index 6b102d0..bea7639 100644
+--- a/view_edit.c
++++ b/view_edit.c
+@@ -269,13 +269,11 @@ static off_t move_mark(off_t mark, off_t start, off_t end, size_t length, int ri
+     return start+(right_affinity ? length : 0);
+ }
+ 
+-// Match the Unicode word boundary used by the former keyword expressions.
++// Simplified word boundary check for ASCII characters.
+ static int highlight_word(const char *text)
+ {
+-    wchar_t ch;
+-    mbstate_t state={0};
+-    size_t bytes=mbrtowc(&ch, text, strnlen(text, MB_CUR_MAX), &state);
+-    return bytes > 0 && bytes <= MB_CUR_MAX && (ch == L'_' || iswalnum(ch));
++    unsigned char c = (unsigned char)*text;
++    return (c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
+ }
+ 
+ // Find a fixed keyword, rejecting suffixes such as "integer" or "int中文".

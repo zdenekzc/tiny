@@ -1,0 +1,33 @@
+tiny — ToaruOS + TinyCC + mini-commander
+Copyright (C) 2026 the tiny contributors
+
+This project is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.  See LICENSE for the full text.
+
+Third-party components
+----------------------
+
+The project downloads, patches or builds the following components but does not
+redistribute their sources:
+
+* mini-commander — https://github.com/Tomas-M/mini-commander
+  License: GNU General Public License v3.0.
+  The ToaruOS port is carried by mc-toaru/patches/mc-toaru.patch, which is
+  distributed under the same license.
+
+* TinyCC — https://bellard.org/tcc/ , https://repo.or.cz/tinycc.git
+  License: GNU Lesser General Public License v2.1.
+  The ToaruOS target support is carried by tcc/toaru/tcc-toaru.patch, which is
+  distributed under the same license.
+
+* ToaruOS 2.3.2 — https://github.com/klange/toaruos
+  License: BSD-2-Clause.
+  The release ISO and the sources are downloaded by tests/run-toaru.sh; they
+  are not part of this repository.
+
+* Nuklear — https://github.com/Immediate-Mode-UI/Nuklear
+  License: public domain / MIT.
+  The single header is downloaded by tests/run-toaru.sh; it is not part of
+  this repository.

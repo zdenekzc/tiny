@@ -1,0 +1,9 @@
+# build artifacts and downloads — everything here can be recreated
+_build/
+_output/
+_tmp/
+
+# editor and OS noise
+*.o
+*.iso
+.DS_Store
