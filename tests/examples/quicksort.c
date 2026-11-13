@@ -1,17 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h> /* srand, rand */
 #include <time.h>   /* time */
+#include <stdbool.h>
 
-const int N = 1000;
-// const int N = 1000000;
+#define N 1000
+// #define N 1000000
 
 int a [N];
 
-inline void swap (int & a, int & b)
+void swap (int * x, int * y)
 {
-    int t = a;
-    a = b;
-    b = t;
+    int t = *x;
+    *x = *y;
+    *y = t;
 }
 
 void quicksort (int r, int s)
@@ -27,7 +28,7 @@ void quicksort (int r, int s)
 
         if (i <= k)
         {
-            swap (a[i], a[k]);
+            swap (&a[i], &a[k]);
             i++;
             k--;
         }

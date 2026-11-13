@@ -155,35 +155,32 @@ cp "${NUKLEAR}" "${PUSH}/nuklear.h"
     | ( cd "${PUSH}/toaruos-src" && tar xf - )
 
 # script for compiling the examples directly in ToaruOS
-cat > "${PUSH}/compile_examples.sh" <<'GUEST_EOF'
+# ToaruOS's esh has no for loop and splits commands at ';', so the file list
+# is generated here instead of using a loop in the guest script.
+{
+    cat <<'GUEST_EOF'
 #!/bin/sh
 # Compiles and runs all *.c in /share.  Output goes to /tmp so that
 # nothing is written to the disk image (ata.ko flushes writes only partially).
 #
 #   /share/compile_examples.sh
 #
-# Note: avl.c, btree.c, queens.c, heapsort.c, knight.c, quicksort.c and towers.c
-# are C++ (constructors, references, "const int N" as array size).
-# TinyCC has only a C frontend, so it will not compile them - they serve for
-# browsing in mc.
-# tcc_hello.c and tcc_test.c are C and will be compiled.
-if [ ! -d /share/tcc ]; then
-    echo "Disk is not mounted. First run:"
-    echo "  mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /share"
-    exit 1
-fi
+# All sources in /share are plain C and TinyCC compiles and runs them;
+# tcc_test.c is the test program from tcc/toaru.
+if not stat -q /share/tcc/bin/tcc then echo "Disk is not mounted. First run:"
+if not stat -q /share/tcc/bin/tcc then echo "  mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /share"
+if not stat -q /share/tcc/bin/tcc then exit 1
 
-for src in /share/*.c; do
-    name=$(basename "$src" .c)
-    exe="/tmp/$name"
-    echo "== $src"
-    if /share/tcc/bin/tcc -o "$exe" "$src"; then
-        "$exe"
-    else
-        echo "   (tcc failed to compile; tcc cannot handle the C++ examples)"
-    fi
-done
 GUEST_EOF
+    for src in "${PUSH}"/*.c; do
+        name=$(basename "$src" .c)
+        printf 'echo "== /share/%s.c"\n' "$name"
+        printf 'if stat -q "/tmp/%s" then rm "/tmp/%s"\n' "$name" "$name"
+        printf '/share/tcc/bin/tcc -o "/tmp/%s" "/share/%s.c"\n' "$name" "$name"
+        printf 'if stat -q "/tmp/%s" then "/tmp/%s"\n' "$name" "$name"
+        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /share/%s.c"\n\n' "$name" "$name"
+    done
+} > "${PUSH}/compile_examples.sh"
 chmod +x "${PUSH}/compile_examples.sh"
 
 cat > "${PUSH}/README.txt" <<'GUEST_EOF'
@@ -246,6 +243,9 @@ demo() {
     "${VM}" send '/share/tcc/bin/tcc -o /tmp/tcc_hello /share/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
     wait_for __T2__ || { echo "  *** tcc in ToaruOS did not compile tcc_hello.c"; rc=1; return $rc; }
 
+    "${VM}" send '/share/compile_examples.sh; echo __T3__'
+    wait_for __T3__ || { echo "  *** compile_examples.sh did not finish"; rc=1; return $rc; }
+
     # mc exits with F10; we send its escape sequence directly (ESC[21~)
     "${VM}" send '/share/mc /share'
     sleep 3
@@ -262,6 +262,19 @@ demo() {
     if ! grep -aq '1+2+...+10 = 55' <<< "$text"; then
         echo "  *** tcc_hello did not print the correct sum"; rc=1
     fi
+    if grep -aq 'tcc failed on' <<< "$text"; then
+        echo "  *** tcc inside ToaruOS failed to compile an example"; rc=1
+    fi
+    # six examples end with O.K.; btree just prints its keys (last one is 800)
+    local ok_count btree_out
+    ok_count=$(grep -ac '^O\.K\.$' <<< "$text" || true)
+    if [[ ${ok_count:-0} -lt 6 ]]; then
+        echo "  *** only ${ok_count:-0} of the 6 examples printed O.K."; rc=1
+    fi
+    btree_out=$(sed -n '/^== \/share\/btree\.c$/,/^== \/share\/heapsort\.c$/p' <<< "$text")
+    if ! grep -aqx '800' <<< "$btree_out"; then
+        echo "  *** btree did not print its last key (800)"; rc=1
+    fi
     if grep -aq 'Segmentation fault' <<< "$text"; then
         echo "  *** something in the guest crashed with Segmentation fault"; rc=1
     fi
@@ -273,7 +286,7 @@ demo() {
     VM_TEST_STARTED=0
 
     if [[ $rc == 0 ]]; then
-        echo "== check OK: tcc_test, tcc inside ToaruOS and mini-commander all work"
+        echo "== check OK: tcc_test, tcc inside ToaruOS, all examples and mini-commander work"
     else
         echo "== check FOUND A PROBLEM (see above)"
     fi

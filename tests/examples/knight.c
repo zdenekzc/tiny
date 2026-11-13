@@ -1,7 +1,7 @@
 #include <stdio.h>
 
-const int N = 8;
-const int limit = 100;
+#define N 8
+#define limit 100
 
 int p[N][N];
 int zx[N][N];

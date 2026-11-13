@@ -1,16 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <stdbool.h>
 
-const int N = 100;
+#define N 100
 
 int a[N];
 
-inline void swap (int & x, int & y)
+void swap (int * x, int * y)
 {
-    int t = x;
-    x = y;
-    y = t;
+    int t = *x;
+    *x = *y;
+    *y = t;
 }
 
 void heapify(int i, int k)
@@ -27,7 +28,7 @@ void heapify(int i, int k)
 
         if (a[i] < a[v])
         {
-            swap (a[i], a[v]);
+            swap (&a[i], &a[v]);
             i = v;
         }
         else
@@ -43,16 +44,16 @@ void heapsort (int n)
     for (int i = n-1; i >= 0; i--)
         heapify (i, n-1);
 
-    for (int i = n-1; i > 0; i--) 
+    for (int i = n-1; i > 0; i--)
     {
-        swap (a[0], a[i]);
+        swap (&a[0], &a[i]);
         heapify (0, i-1);
     }
 }
 
 int main()
 {
-    srand (time (nullptr));
+    srand (time (NULL));
     for (int i = 0; i < N; i++)
         a[i] = rand() % 10000;
 
@@ -67,5 +68,5 @@ int main()
     }
 
     if (ok)
-       printf ("O.K.\n"); 
+       printf ("O.K.\n");
 }

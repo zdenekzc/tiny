@@ -41,11 +41,11 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
    terminal backend is not part of the image),
 6. builds `_build/push/` and packs it into the ext2 image
    **`_build/share.img`** (`mkshare.sh`): `/mc`, `/tcc_test`, `/tcc_test.c`,
-   `/tcc/{bin/tcc,include,lib}`, `/tests/examples/*.c`, `/toaruos-src`,
-   `/nuklear.h`, `/compile_examples.sh`, `/README.txt`,
+   `/tcc/{bin/tcc,include,lib}`, the sources from `tests/examples/*.c`,
+   `/toaruos-src`, `/nuklear.h`, `/compile_examples.sh`, `/README.txt`,
 7. boots a **headless verification VM** and checks that `/share/tcc_test`
-   runs, that tcc inside ToaruOS compiles and runs `/share/tcc_hello.c`, and
-   that mini-commander draws itself and can be quit,
+   runs, that tcc inside ToaruOS compiles and runs `/share/tcc_hello.c` and
+   every example, and that mini-commander draws itself and can be quit,
 8. starts the **visible ToaruOS** in a QEMU window and leaves it running.
 
 The verification VM (step 7) can be skipped with `DEMO=0`, the QEMU window with
@@ -197,11 +197,10 @@ After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
   `printf("%-7s")` truncates, `dprintf` is missing, `.fini_array` is not
   called, `%f` has no default precision, `sscanf("%hd")` is broken,
   `dlsym(RTLD_DEFAULT, …)` crashes. The shim and mc avoid all of these.
-- **Examples**: `avl.c`, `btree.c`, `queens.c`, `heapsort.c`, `knight.c`,
-  `quicksort.c`, `towers.c` are C++ despite the `.c` suffix (constructors,
-  references, class names without `struct`, `const int N` as an array size) —
-  TinyCC has only a C frontend, so only `tcc_hello.c` and `tcc_test.c`
-  compile. The rest are meant to be browsed in `mc`.
+- **Examples**: all `tests/examples/*.c` files are plain C (C99/C11) and
+  TinyCC compiles and runs them. `queens.c`, `knight.c` and `towers.c` are the
+  chess/toy examples; the rest are data structures and sorting.
+  `/share/compile_examples.sh` compiles every `*.c` in `/share`.
 
 ## License
 

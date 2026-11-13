@@ -1,10 +1,7 @@
-/* tcc_hello.c -- the only example in this directory that is really C.
+/* tcc_hello.c -- a small plain-C program compiled by tcc inside ToaruOS.
  *
- * The other files (avl.c, btree.c, queens.c, ...) are C++: they use
- * constructors, references and "const int N" as an array size.  TinyCC has
- * only a C frontend, so it will not compile them - in ToaruOS they serve for
- * viewing and editing in mini-commander.  This file verifies that tcc inside
- * ToaruOS really compiles, links and runs a program:
+ * All files in this directory are plain C and TinyCC compiles them.  This one
+ * verifies that tcc inside ToaruOS really compiles, links and runs a program:
  *
  *   /share/tcc/bin/tcc -o /share/tcc_hello /share/tcc_hello.c
  *   /share/tcc_hello
