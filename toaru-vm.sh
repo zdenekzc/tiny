@@ -7,6 +7,8 @@
 #   ./toaru-vm.sh status           # running? + log size
 #   ./toaru-vm.sh stop             # kills QEMU and the FIFO holder
 #   ./toaru-vm.sh mon 'info reg'   # QEMU monitor (HMP) command via the QMP socket
+#   ./toaru-vm.sh qmp '{"execute":"query-status"}'
+#                                  # raw QMP command (JSON), e.g. input-send-event
 #
 # The QMP socket (mon) serves to inspect the state when the guest "does not
 # respond": until you look at where the vCPU is standing, you cannot tell
@@ -20,7 +22,7 @@
 #
 # Optional: ISO=/path SHARE=/path RAM= MB SMP= SOUND=none|alsa|off \
 #            VISIBLE=1 (QEMU window instead of -display none) \
-#            HEADLESS=0 (graphical boot; getty on ttyS1 remains) \
+#            HEADLESS=0 (graphical boot; no getty on ttyS1 — use the Terminal) \
 #            ACCEL=tcg QEMU_EXTRA='-d int -D /tmp/qemu-int.log' (additional QEMU
 #            arguments; -d int logs exceptions only in TCG, not with KVM)
 #   ./toaru-vm.sh start
@@ -114,9 +116,10 @@ do_start() {
     esac
 
     # VISIBLE=1 opens a QEMU window (gtk/sdl) instead of -display none.  HEADLESS=0
-    # lets ToaruOS boot graphically (yutani + terminal); getty on ttyS1
-    # is added by the fw_cfg gettyargs and remains even in graphical mode, so
-    # ./toaru-vm.sh send works in both cases.
+    # lets ToaruOS boot graphically (yutani + terminal).  In that mode
+    # 99_runstart.sh execs the compositor instead of getty, so ttyS1 stays
+    # silent; commands must be typed into the graphical Terminal (run-toaru.sh
+    # does that with the QEMU monitor's sendkey).
     local -a display=(-display none) bootmode=()
     [[ $VISIBLE == 1 ]] && display=(-display "$DISPLAY_BACKEND")
     [[ $HEADLESS == 1 ]] && bootmode=(-fw_cfg name=opt/org.toaruos.bootmode,string=headless)
@@ -232,6 +235,66 @@ sys.stdout.write(r.get("return", ""))
 PY
 }
 
+# Raw QMP: each argument is one JSON message ({"execute": ..., "arguments": ...}).
+# Useful for input-send-event, which drives the graphical session independently
+# of the host window focus (sendkey only injects keystrokes into the guest's
+# keyboard; pointer movement has no HMP equivalent that works with vmmouse).
+do_qmp() {
+    [[ $# -gt 0 ]] || die "qmp: JSON command, e.g. ./toaru-vm.sh qmp '{\"execute\":\"query-status\"}'"
+    [[ -S "$QMPS" ]] || die "no QMP socket $QMPS — ./toaru-vm.sh start"
+    python3 -I - "$QMPS" "$@" <<'PY'
+import json, socket, sys
+
+path, messages = sys.argv[1], sys.argv[2:]
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(20.0)
+try:
+    s.connect(path)
+except OSError as e:
+    sys.exit("connection to %s: %s" % (path, e))
+
+f = s.makefile("rwb")
+
+def recv_reply():
+    while True:
+        try:
+            line = f.readline()
+        except (OSError, TimeoutError):
+            sys.exit("QMP: reply did not arrive within %.0f s" % s.gettimeout())
+        if not line:
+            sys.exit("QMP: connection closed")
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if "return" in msg or "error" in msg:
+            return msg
+
+def call(cmd, args=None):
+    msg = {"execute": cmd}
+    if args is not None:
+        msg["arguments"] = args
+    f.write((json.dumps(msg) + "\n").encode()); f.flush()
+    return recv_reply()
+
+r = call("qmp_capabilities")
+if "error" in r:
+    sys.exit("qmp_capabilities: %s" % r["error"])
+
+for raw in messages:
+    try:
+        msg = json.loads(raw)
+    except ValueError as e:
+        sys.exit("qmp: invalid JSON (%s): %s" % (e, raw))
+    if "execute" not in msg:
+        sys.exit("qmp: missing \"execute\" in %s" % raw)
+    r = call(msg["execute"], msg.get("arguments"))
+    print(json.dumps(r))
+    if "error" in r:
+        sys.exit(1)
+PY
+}
+
 clean() {
     # -a: mc and other curses programs send non-printable bytes into the log too
     # (mouse, SGR); without -a grep refuses with "binary file matches" and the log disappears
@@ -244,6 +307,7 @@ case "${1:-}" in
     send)   shift; do_send "$*" ;;
     log)    clean | tail -n "${2:-40}" ;;
     mon)    shift; do_mon "$*" ;;
+    qmp)    shift; do_qmp "$@" ;;
     status)
         if running; then echo "QEMU is running, pid=$(cat "${PIDF}")";
         else echo "QEMU is not running"; fi

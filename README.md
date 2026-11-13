@@ -11,9 +11,10 @@ for ToaruOS.
 
 The first run downloads the ISO, the ToaruOS sources and TinyCC and builds
 everything (a few minutes); later runs only fill in what is missing. A QEMU
-window with ToaruOS then opens — just open Terminal inside and mount the shared
-disk (see "Inside ToaruOS" below). You are logged in automatically
-(`root@livecd`).
+window with ToaruOS then opens and the shared disk is mounted at `/share`
+automatically (see "Inside ToaruOS" below if you start the VM by hand). The
+serial line is logged in as `root@livecd`; the graphical session as `local`
+(password `local`).
 
 Nothing under `_build/` or `_output/` is irreplaceable: both can be deleted at
 any time and `run-toaru.sh` will download and build everything again.
@@ -45,16 +46,25 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
    `/toaruos-src`, `/nuklear.h`, `/compile_examples.sh`, `/README.txt`,
 7. boots a **headless verification VM** and checks that `/share/tcc_test`
    runs, that tcc inside ToaruOS compiles and runs `/share/tcc_hello.c` and
-   every example, and that mini-commander draws itself and can be quit,
-8. starts the **visible ToaruOS** in a QEMU window and leaves it running.
+   every example, and that mini-commander draws its panels (with the current
+   item highlighted), runs its command line on Enter, opens the viewer (F3)
+   and editor (F4) and quits with F10 or a mouse click,
+8. starts the **visible ToaruOS** in a QEMU window and mounts the shared disk at
+   `/share`, then leaves the VM running:
+   - graphical boot: closes the first-boot tutorial, double-clicks the Terminal
+     icon (QMP absolute pointer) and types the mount commands with QEMU's
+     `sendkey` (the session runs as user `local`, so the first command asks for
+     its password, `local`),
+   - headless boot: uses the root getty on the serial line.
 
 The verification VM (step 7) can be skipped with `DEMO=0`, the QEMU window with
-`VISIBLE=0`.
+`VISIBLE=0`, automatic mounting with `AUTOMOUNT=0`.
 
 ## Inside ToaruOS
 
-The shared disk is not mounted automatically. In Terminal (or on the serial
-line):
+`run-toaru.sh` waits for the guest and mounts the shared disk automatically, so
+`/share` is ready in the Terminal. If you start the VM by hand with
+`./toaru-vm.sh start`, mount it first:
 
 ```sh
 mkdir -p /share
@@ -86,10 +96,11 @@ bindings apply (`Tab` switches panels, `F3` viewer, `F4` editor, …).
 
 ```bash
 ./toaru-vm.sh start            # starts the VM in the background (log _build/work/out.log)
-./toaru-vm.sh send 'ls /'      # sends a command to the serial line (getty on ttyS1)
+./toaru-vm.sh send 'ls /'      # serial line (only in a headless boot, getty on ttyS1)
 ./toaru-vm.sh log 200          # last 200 log lines without ANSI sequences
 ./toaru-vm.sh status           # running? log size
 ./toaru-vm.sh mon 'info reg'   # QEMU monitor command (QMP socket)
+./toaru-vm.sh qmp '{"execute":"query-status"}'   # raw QMP command (JSON)
 ./toaru-vm.sh stop             # stops QEMU
 ```
 
@@ -98,8 +109,9 @@ bindings apply (`Tab` switches panels, `F3` viewer, `F4` editor, …).
 | Variable | Meaning |
 |---|---|
 | `VISIBLE=0` | no QEMU window (serial line only); the automated check still runs |
-| `HEADLESS=0` | graphical boot even for a windowless VM (getty on ttyS1 stays) |
+| `HEADLESS=1` | headless boot even when the QEMU window is open (mounts over the serial line) |
 | `DEMO=0` | skip the verification VM (step 7) |
+| `AUTOMOUNT=0` | do not mount the shared disk automatically |
 | `MB=128` | size of `share.img` in MiB (default 64; enough even with the ToaruOS sources) |
 | `ACCEL=tcg` | no KVM (slower, but `-d int` logs exceptions under TCG) |
 | `QEMU_EXTRA=...` | extra QEMU arguments (e.g. `-s` for the gdb stub) |
@@ -145,13 +157,18 @@ underscore are treated as disposable, which is why user data belongs in
 
 ## Requirements
 
-`bash`, `curl`, `git`, `qemu-system-x86_64`, `python3`, `7z` (p7zip; unpacks
-the ISO when building the sysroot), host `gcc` (for the cross tcc) and
+`bash`, `curl`, `git`, `patch`, `qemu-system-x86_64`, `python3`, `7z` (p7zip;
+unpacks the ISO when building the sysroot), host `gcc` (for the cross tcc) and
 `e2fsprogs` (`mke2fs`, `debugfs`). No `sudo` is needed — `share.img` is a plain
 file and the guest mounts it as an IDE disk.
 
-Fedora: `dnf install qemu-system-x86 p7zip gcc e2fsprogs python3 curl git`
-Debian/Ubuntu: `apt install qemu-system-x86 p7zip-full gcc e2fsprogs python3 curl git`
+Fedora: `dnf install qemu-system-x86 p7zip gcc e2fsprogs python3 curl git patch`
+Debian/Ubuntu: `apt install qemu-system-x86 p7zip-full gcc e2fsprogs python3 curl git patch`
+
+For automatic mounting in the **visible** QEMU window, `wmctrl` (X11) or
+`xdotool` is used when available to bring the QEMU window to the front; the
+pointer and the keystrokes are then injected through QMP, so the mount works
+without them too. Without either tool the script only prints a warning.
 
 ## Cleaning and rebuilding
 
@@ -179,6 +196,29 @@ After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
   every sequence must end with `m` — without it the terminal takes the next
   character as the sequence terminator and swallows it (this is exactly what
   made the first letter of every button label disappear, `F2 Sort` → `ort`).
+- **Function keys**: ToaruOS sends F1–F4 as `ESC O P`…`ESC O S` and F5–F12 as
+  `ESC [ n ~`. The shim's `decode_escape()` originally compared those bytes with
+  an off-by-one offset, so every function key failed and its tail leaked as text
+  (`F1` → `P`, `F9` → `20~`). The parser now keeps the bytes following ESC in
+  one buffer and matches the whole sequence; `tests/run-toaru.sh` checks that
+  F9/F10 do not leak and that F10 quits mc.
+- **Mouse**: the shim enables SGR mouse reporting (`ESC[?1006`), but ToaruOS
+  actually sends the reports as `ESC[<b;x;yM` / `…m`; those have to be parsed
+  before the generic escape-sequence code, otherwise a click leaks into the
+  terminal as text (`<0;8;4M<0;8;4m`). `decode_sgr_mouse()` / `decode_x10_mouse()`
+  now queue a `MEVENT` and return `KEY_MOUSE`. The automated check clicks the
+  F10 footer and verifies that mc returns to the shell.
+- **Enter**: the Terminal sends Enter as CR (`\r`), while mc compares the key
+  with `'\n'`. Real ncurses translates CR to NL in its default `nl()` mode; the
+  shim now does the same (`wget_wch()`), otherwise Enter did nothing — neither
+  on the command line nor in dialogs.
+- **Colors and the current item**: `wattron()` used to be a no-op and cells
+  written by `waddstr()` ignored the window's current attributes, so the panel
+  was drawn in one color and the current item had no highlight. `wattron()` now
+  stores the attributes (a color pair replaces the previous one, as in ncurses)
+  and `cell_put()` applies them; the active row is black on cyan, `.c`/`.h`
+  files cyan and executable files bold green. The automated check looks for the
+  black-on-cyan SGR sequence in the guest output.
 - **ext2 and sparse files** — the trickiest thing in the project: `mke2fs -d`
   writes files with holes (zero blocks are not allocated), but `modules/ext2.c`
   in ToaruOS 2.3.2 has two bugs:
@@ -196,7 +236,10 @@ After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
 - **Known ToaruOS 2.3.2 libc bugs** (found while porting): `fflush(NULL)` crashes with SIGSEGV,
   `printf("%-7s")` truncates, `dprintf` is missing, `.fini_array` is not
   called, `%f` has no default precision, `sscanf("%hd")` is broken,
-  `dlsym(RTLD_DEFAULT, …)` crashes. The shim and mc avoid all of these.
+  `dlsym(RTLD_DEFAULT, …)` crashes and `mmap` is not implemented at all
+  (`sys/mman.h` is an empty placeholder). The shim and mc avoid all of these;
+  `view_edit.c` reads files with `read()` instead of `mmap()`, otherwise taking
+  F3/F4 crashed with SIGSEGV because the old stub returned NULL.
 - **Examples**: all `tests/examples/*.c` files are plain C (C99/C11) and
   TinyCC compiles and runs them. `queens.c`, `knight.c` and `towers.c` are the
   chess/toy examples; the rest are data structures and sorting.

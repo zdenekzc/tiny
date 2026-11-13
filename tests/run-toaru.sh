@@ -18,16 +18,24 @@
 #   7. starts a HEADLESS (no window) control VM and verifies:
 #        - /share/tcc_test (program compiled by the cross tcc),
 #        - tcc inside ToaruOS compiles and runs /share/tcc_hello.c,
-#        - mini-commander starts and can be exited with F10,
-#   8. starts a VISIBLE ToaruOS in QEMU and leaves it running.
+#        - every example in /share compiles and runs,
+#        - mini-commander starts, draws its panels with a highlighted current
+#          item, executes its command line on Enter and quits with F10 or a
+#          mouse click on the F10 footer,
+#   8. starts a VISIBLE ToaruOS in QEMU and mounts the shared disk at /share:
+#        - visible boot: closes the welcome tutorial, double-clicks the
+#          Terminal icon (QMP absolute pointer) and types the mount commands
+#          with QEMU sendkey (the graphical session is "local"),
+#        - headless boot: uses the getty on the serial line as root.
+#      The VM is then left running.
 #
 # Inside the visible ToaruOS open the Terminal and run:
 #
-#   mkdir -p /share
-#   insmod /mod/ext2.ko
-#   mount ext2 /dev/hda,rw /share
 #   /share/tcc/bin/tcc -o /tmp/hello /share/tcc_hello.c ; /tmp/hello
 #   /share/mc /share
+#
+# (When the VM is started by hand with ./toaru-vm.sh start, mount the disk
+#  first: mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /share)
 #
 # Shutdown:  ./toaru-vm.sh stop
 #
@@ -35,6 +43,7 @@
 #   VISIBLE=0     no QEMU window (serial line only; automatic check still runs)
 #   HEADLESS=1    force headless boot even for the visible VM
 #   DEMO=0        skip the automatic control VM
+#   AUTOMOUNT=0   do not mount the shared disk automatically
 #   MB=128        share.img size in MiB (default 64, enough even with sources)
 # ------------------------------------------------------------
 
@@ -58,7 +67,9 @@ SHARE_TEST="${BUILD_DIR}/share-test.img"
 VM="${REPO_ROOT}/toaru-vm.sh"
 
 VISIBLE=${VISIBLE:-1}
+HEADLESS=${HEADLESS:-0}   # 1 = headless boot even when a QEMU window is open
 DEMO=${DEMO:-1}
+AUTOMOUNT=${AUTOMOUNT:-1}
 MB=${MB:-64}
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -233,6 +244,16 @@ demo() {
         return 1
     }
 
+    at_shell() {   # at_shell <marker> - did a shell prompt follow the marker?
+        awk -v m="$1" '$0 == m { seen = 1; next }
+            seen && /root@livecd/ { found = 1 }
+            END { exit !found }'
+    }
+
+    # send_raw writes bytes without the trailing NL that "send" adds; needed for
+    # CR (Enter) and for escape sequences whose trailing NL would be read as Enter.
+    send_raw() { printf '%s' "$1" > "${BUILD_DIR}/work/in"; }
+
     "${VM}" send 'mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda /share; echo __MNT__'
     wait_for __MNT__ || { echo "  *** /share did not mount"; rc=1; return $rc; }
 
@@ -246,13 +267,77 @@ demo() {
     "${VM}" send '/share/compile_examples.sh; echo __T3__'
     wait_for __T3__ || { echo "  *** compile_examples.sh did not finish"; rc=1; return $rc; }
 
-    # mc exits with F10; we send its escape sequence directly (ESC[21~)
+    # mc exits with F10; we send the escape sequences directly (F9 = ESC[20~,
+    # F10 = ESC[21~).  If the parser loses the CSI prefix, "20~"/"21~" ends up
+    # on the terminal as text (that was a real bug), so check for both.
     "${VM}" send '/share/mc /share'
     sleep 3
-    "${VM}" send "$(printf '\033[21~')"
+
+    # Enter arrives from the terminal as CR; the ncurses shim has to translate
+    # it to NL, otherwise mc ignores it (the command line does nothing).
+    send_raw 'echo __MC_ENTER__'
+    sleep 1
+    send_raw "$(printf '\r')"
+    local en
+    for en in $(seq 1 10); do
+        "${VM}" log 2000 2>/dev/null | grep -qx '__MC_ENTER__' && break
+        sleep 1
+    done
+    if ! "${VM}" log 2000 2>/dev/null | grep -qx '__MC_ENTER__'; then
+        echo "  *** Enter did not execute the mini-commander command line"; rc=1
+    fi
+
+    # F3 (viewer) and F4 (editor) used to crash: view_edit.c called mmap(),
+    # which ToaruOS does not implement, and then parsed the NULL pointer.
+    # Move down to README.txt, open both, and quit each with F10.
+    local dn
+    for dn in 1 2 3 4 5; do
+        send_raw "$(printf '\033[B')"
+        sleep 0.3
+    done
+    send_raw "$(printf '\033OR')"   # F3 - viewer
     sleep 2
+    send_raw "$(printf '\033[21~')" # F10 - quit the viewer
+    sleep 1
+    send_raw "$(printf '\033OS')"   # F4 - editor
+    sleep 2
+    send_raw "$(printf '\033[21~')" # F10 - quit the (unmodified) editor
+    sleep 1
+
+    send_raw "$(printf '\033[20~')"
+    sleep 1
+    send_raw "$(printf '\033[21~')"
+    sleep 1
+    "${VM}" send 'echo __MC_QUIT__'
+    wait_for __MC_QUIT__ || { echo "  *** mini-commander did not exit on F10"; rc=1; return $rc; }
+    local t
+    t=$("${VM}" log 100000 2>/dev/null || true)
+    if ! at_shell __MC_QUIT__ <<< "$t"; then
+        echo "  *** F10 did not return mini-commander to the shell"; rc=1; return $rc
+    fi
+
+    # A mouse click on the F10 footer must work too.  The getty terminal is
+    # 80x24 and SGR coordinates are 1-based, so (75,24) is the last footer slot.
+    "${VM}" send '/share/mc /share'
+    sleep 3
+    send_raw "$(printf '\033[<0;75;24M\033[<0;75;24m')"
+    sleep 2
+    "${VM}" send 'echo __MC_MOUSE__'
+    local j
+    for j in $(seq 1 10); do
+        "${VM}" log 2000 2>/dev/null | grep -qx '__MC_MOUSE__' && break
+        sleep 1
+    done
 
     text=$("${VM}" log 100000 2>/dev/null || true)
+    if ! at_shell __MC_MOUSE__ <<< "$text"; then
+        echo "  *** mouse click on the F10 footer did not quit mini-commander"; rc=1
+        send_raw "$(printf '\033[21~')"   # do not leave mc running
+        sleep 1
+    fi
+    if grep -aqE '(20|21)~|<[0-9]+;[0-9]+;[0-9]+[Mm]' <<< "$text"; then
+        echo "  *** a key or mouse sequence leaked into the terminal as text"; rc=1
+    fi
     if ! grep -aq 'ctor=1' <<< "$text"; then
         echo "  *** tcc_test did not print ctor=1"; rc=1
     fi
@@ -275,11 +360,25 @@ demo() {
     if ! grep -aqx '800' <<< "$btree_out"; then
         echo "  *** btree did not print its last key (800)"; rc=1
     fi
+    if ! grep -aq '21/21' <<< "$text"; then
+        echo "  *** the F3 viewer did not open README.txt"; rc=1
+    fi
+    if ! grep -aq 'U+0054' <<< "$text"; then
+        echo "  *** the F4 editor did not open README.txt"; rc=1
+    fi
     if grep -aq 'Segmentation fault' <<< "$text"; then
         echo "  *** something in the guest crashed with Segmentation fault"; rc=1
     fi
     if ! grep -aq 'Quit' <<< "$text"; then
         echo "  *** mini-commander did not draw (the Quit hint is missing)"; rc=1
+    fi
+    if ! grep -aq -- '-- /share --' <<< "$text"; then
+        echo "  *** mini-commander did not draw the file panels"; rc=1
+    fi
+    # The current item is drawn black on cyan (SGR 30;46).  If wattron() does
+    # not store the color pair, every row keeps the plain panel background.
+    if ! grep -aqF $'\033[0;30;46m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
+        echo "  *** the current panel item is not highlighted"; rc=1
     fi
 
     "${VM}" stop > /dev/null 2>&1 || true
@@ -308,23 +407,221 @@ fi
 
 if [[ "${VISIBLE}" == 1 ]]; then
     echo "== starting visible ToaruOS in QEMU (the window opens in ~15 s) ..."
-    VISIBLE=1 HEADLESS=0 "${VM}" start
+    VISIBLE=1 HEADLESS="${HEADLESS}" "${VM}" start
 else
     echo "== starting ToaruOS without a window (serial line) ..."
     VISIBLE=0 HEADLESS=1 "${VM}" start
 fi
 
+# A graphical boot does not run the serial getty: 99_runstart.sh starts yutani
+# and a session for the user "local".  The only way in is to type into the
+# Terminal window.  QEMU's sendkey injects keys into the guest keyboard and the
+# compositor gives them to its focused window; bringing the QEMU window to the
+# front with wmctrl/xdotool is best effort and keeps the host from stealing
+# focus.
+focus_qemu() {
+    local qpid wid i
+    qpid=$(cat "${BUILD_DIR}/work/qemu.pid" 2>/dev/null || true)
+    for i in $(seq 1 20); do
+        if command -v wmctrl > /dev/null 2>&1; then
+            wid=$(wmctrl -lp 2>/dev/null | awk -v p="${qpid:-0}" '$3 == p {print $1; exit}')
+            if [[ -n ${wid} ]]; then
+                wmctrl -i -a "${wid}" > /dev/null 2>&1 && return 0
+            fi
+            # fall back to the window title; useful if _NET_WM_PID is missing
+            wmctrl -a QEMU > /dev/null 2>&1 && return 0
+        elif command -v xdotool > /dev/null 2>&1 && [[ -n ${qpid} ]]; then
+            xdotool search --pid "${qpid}" windowactivate > /dev/null 2>&1 && return 0
+        fi
+        sleep 0.5
+    done
+    return 1
+}
+
+type_in_guest() {   # type_in_guest <text> [delay] — uses the QEMU monitor's sendkey
+    local text=$1 delay=${2:-0.1} i ch key
+    for ((i = 0; i < ${#text}; i++)); do
+        ch=${text:i:1}
+        case ${ch} in
+            ' ') key=spc ;;
+            '/') key=slash ;;
+            '-') key=minus ;;
+            '.') key=dot ;;
+            ',') key=comma ;;
+            '_') key=shift-minus ;;
+            ';') key=semicolon ;;
+            '=') key=equal ;;
+            '&') key=shift-7 ;;
+            '|') key=shift-backslash ;;
+            '>') key=shift-dot ;;
+            '<') key=shift-comma ;;
+            '*') key=shift-8 ;;
+            "'") key=apostrophe ;;
+            [A-Z]) key="shift-${ch,,}" ;;   # HMP key names are lower case
+            *)   key=${ch} ;;
+        esac
+        "${VM}" mon "sendkey ${key}" > /dev/null 2>&1 || return 1
+        sleep "${delay}"
+    done
+    "${VM}" mon 'sendkey ret' > /dev/null 2>&1 || return 1
+    sleep 0.5
+    return 0
+}
+
+press_key() {       # press_key <QEMU key name>
+    "${VM}" mon "sendkey $1" > /dev/null 2>&1
+}
+
+# The graphical session has no serial getty, so the only way in is the Terminal
+# window.  QEMU's HMP mouse_move does nothing with the absolute vmmouse device;
+# QMP input-send-event works.  Its absolute axes are always 0..32767, so guest
+# pixel coordinates from a screendump have to be scaled.
+guest_screen_size() {   # prints "WIDTH HEIGHT" of the guest display
+    local ppm="${BUILD_DIR}/work/screen.ppm" i
+    rm -f "$ppm"
+    "${VM}" mon "screendump ${ppm}" > /dev/null 2>&1 || return 1
+    for i in $(seq 1 20); do
+        [[ -s "$ppm" ]] && break
+        sleep 0.1
+    done
+    [[ -s "$ppm" ]] || return 1
+    python3 -I - "$ppm" <<'PY'
+import sys
+with open(sys.argv[1], "rb") as f:
+    if f.readline().strip() != b"P6":
+        sys.exit(1)
+    w, h = map(int, f.readline().split())
+print(w, h)
+PY
+}
+
+qmp_abs() {   # qmp_abs <x> <y> <width> <height> — move the absolute pointer
+    local x=$1 y=$2 w=$3 h=$4 ax ay
+    (( w > 0 && h > 0 )) || return 1
+    ax=$(( (x * 32767 + w / 2) / w ))
+    ay=$(( (y * 32767 + h / 2) / h ))
+    "${VM}" qmp "$(printf '{"execute":"input-send-event","arguments":{"events":[{"type":"abs","data":{"axis":"x","value":%d}},{"type":"abs","data":{"axis":"y","value":%d}}]}}' "${ax}" "${ay}")" > /dev/null
+}
+
+qmp_btn() {   # qmp_btn <down|up>
+    local down=false
+    [[ $1 == down ]] && down=true
+    "${VM}" qmp "{\"execute\":\"input-send-event\",\"arguments\":{\"events\":[{\"type\":\"btn\",\"data\":{\"down\":${down},\"button\":\"left\"}}]}}" > /dev/null
+}
+
+qmp_click() {   # qmp_click <x> <y> <width> <height>
+    qmp_abs "$1" "$2" "$3" "$4" || return 1
+    sleep 0.05
+    qmp_btn down || return 1
+    sleep 0.05
+    qmp_btn up || return 1
+}
+
+qmp_double_click() {
+    qmp_click "$@" || return 1
+    sleep 0.12
+    qmp_click "$@" || return 1
+}
+
+mount_share_serial() {
+    local i
+    for i in $(seq 1 60); do
+        "${VM}" log 2000 2>/dev/null | grep -aq 'root@livecd' && break
+        sleep 1
+    done
+    "${VM}" send 'mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /share; echo __SHARE_MOUNTED__'
+    for i in $(seq 1 30); do
+        "${VM}" log 2000 2>/dev/null | grep -qx '__SHARE_MOUNTED__' && return 0
+        sleep 1
+    done
+    return 1
+}
+
+mount_share_gui() {
+    # The graphical boot shows the "Welcome to ToaruOS!" tutorial first and has
+    # no Terminal open; checking the serial log tells us nothing here.
+    echo "== waiting for the graphical session ..."
+    sleep 25
+    focus_qemu || echo "warning: cannot focus the QEMU window (wmctrl/xdotool); continuing" >&2
+    sleep 1
+
+    # Close the first-boot tutorial (harmless when it is already gone).
+    press_key esc
+    sleep 2
+
+    local w h tx ty i text
+    if ! read -r w h < <(guest_screen_size); then
+        echo "warning: could not read the guest screen size" >&2
+        return 1
+    fi
+    [[ -n ${w:-} && -n ${h:-} ]] || {
+        echo "warning: could not read the guest screen size" >&2; return 1; }
+    # Terminal icon in the top-left corner of the desktop (measured at
+    # 1920x1080; scale in case the guest picks another mode).
+    tx=$(( 64 * w / 1920 ))
+    ty=$(( 190 * h / 1080 ))
+    qmp_double_click "${tx}" "${ty}" "${w}" "${h}" || return 1
+    sleep 3
+
+    # The first sudo asks for the live CD user's password (local/local).  The
+    # commands are typed slowly: sendkey holds each key for ~100 ms and the
+    # Terminal drops keys when they arrive too fast.
+    type_in_guest 'sudo mkdir -p /share' 0.12 || return 1
+    sleep 2
+    type_in_guest 'local' 0.12 || return 1
+    sleep 2
+    type_in_guest 'sudo insmod /mod/ext2.ko' 0.1 || return 1
+    sleep 1
+    type_in_guest 'sudo mount ext2 /dev/hda,rw /share' 0.1 || return 1
+    sleep 1
+
+    # Verify from the host.  local cannot redirect into /dev/ttyS1 (the live
+    # session does not set supplementary groups), but root can, so copy a file
+    # from the mounted disk there: if the README text reaches the serial log,
+    # /share really is mounted.
+    type_in_guest 'sudo cp /share/README.txt /dev/ttyS1' 0.1 || return 1
+    for i in $(seq 1 20); do
+        text=$("${VM}" log 200000 2>/dev/null || true)
+        if grep -aq 'ToaruOS + TinyCC + mini-commander' <<< "$text"; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+MOUNTED_TEXT="Mount the shared disk in the Terminal first (see below)."
+if [[ "${AUTOMOUNT}" == 1 ]]; then
+    if [[ "${VISIBLE}" == 1 && "${HEADLESS}" == 0 ]]; then
+        if mount_share_gui; then
+            echo "== /share is mounted in the graphical session"
+            MOUNTED_TEXT="The shared disk was mounted at /share automatically."
+        else
+            echo "warning: /share was not mounted automatically; mount it in the Terminal" >&2
+        fi
+    elif mount_share_serial; then
+        echo "== /share is mounted in the guest"
+        MOUNTED_TEXT="The shared disk was mounted at /share automatically."
+    else
+        echo "warning: /share was not mounted automatically; mount it manually (see below)" >&2
+    fi
+fi
+
 cat <<EOF
 
 Done. ToaruOS is running (log: ${BUILD_DIR}/work/out.log).
+${MOUNTED_TEXT}
 
 In the ToaruOS window open the Terminal and run:
+
+    /share/tcc/bin/tcc -o /tmp/hello /share/tcc_hello.c ; /tmp/hello
+    /share/mc /share
+
+If you start the VM later with ./toaru-vm.sh start, mount the disk first:
 
     mkdir -p /share
     insmod /mod/ext2.ko
     mount ext2 /dev/hda,rw /share
-    /share/tcc/bin/tcc -o /tmp/hello /share/tcc_hello.c ; /tmp/hello
-    /share/mc /share
 
 Shutting down the VM:  ./toaru-vm.sh stop
 Serial line (only with HEADLESS=1):  ./toaru-vm.sh send 'command'

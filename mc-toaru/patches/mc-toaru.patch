@@ -144,10 +144,43 @@ index 06b0e7a..241f8f7 100644
      return OPERATION_OK;
  }
 diff --git a/view_edit.c b/view_edit.c
-index 6b102d0..bea7639 100644
+index 6b102d0..ffa60ef 100644
 --- a/view_edit.c
 +++ b/view_edit.c
-@@ -269,13 +269,11 @@ static off_t move_mark(off_t mark, off_t start, off_t end, size_t length, int ri
+@@ -169,11 +169,29 @@ static file_lines *load_file_lines(const char *filename, off_t *num_lines, off_t
+         return NULL;
+     }
+     size_t length=(size_t)statbuf.st_size;
+-    char *data=length ? mmap(NULL, length, PROT_READ, MAP_PRIVATE, fd, 0) : "";
+-    if (data == MAP_FAILED) { close(fd); return NULL; }
++    // ToaruOS has no mmap() implementation (sys/mman.h says so); read the file
++    // instead.  The previous stub returned NULL, which split_file_lines()
++    // dereferenced - F3/F4 crashed with SIGSEGV on every file.
++    char *data=length ? malloc(length) : "";
++    if (length && !data) { close(fd); return NULL; }
++    size_t done=0;
++    while (done < length)
++    {
++        ssize_t got=read(fd, data+done, length-done);
++        if (got > 0) done+=(size_t)got;
++        else if (got < 0 && errno == EINTR) continue;
++        else break;
++    }
++    if (done != length)
++    {
++        if (length) free(data);
++        close(fd);
++        errno=EIO;
++        return NULL;
++    }
+     file_lines *tail, *head=split_file_lines(data, length, num_lines, &tail);
+     int error=errno;
+-    if (length) munmap(data, length);
++    if (length) free(data);
+     close(fd);
+     errno=error;
+     return head;
+@@ -269,13 +287,11 @@ static off_t move_mark(off_t mark, off_t start, off_t end, size_t length, int ri
      return start+(right_affinity ? length : 0);
  }
  

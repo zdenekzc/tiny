@@ -53,7 +53,9 @@ stage() {  # _output/src = clean sources + our patch, from scratch every time
         (cd "$SRC" && tar cf - --exclude=.git .) | (cd "$WORK" && tar xf -) || die "copy of sources"
     fi
     if [[ -f $PATCH ]]; then
-        (cd "$WORK" && git apply -p1 "$PATCH") || die "patch $PATCH failed to apply"
+        # patch(1), not "git apply": _output/ is inside the project repository
+        # and git apply silently skips files that .gitignore matches.
+        (cd "$WORK" && patch -p1 -s < "$PATCH") || die "patch $PATCH failed to apply"
         echo "applied patch: $(basename "$PATCH")"
     else
         echo "warning: without patch $PATCH — original sources"

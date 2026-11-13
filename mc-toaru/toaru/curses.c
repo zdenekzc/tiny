@@ -276,18 +276,15 @@ static void win_fill(WINDOW *w, unsigned int ch, unsigned int attr)
 static void win_copy_into(WINDOW *dst, WINDOW *src)
 {
 	int y, x;
-	int y0 = src->begin_y, x0 = src->begin_x;
-	if (y0 < 0)
-		y0 = 0;
-	if (x0 < 0)
-		x0 = 0;
-	for (y = y0; y < src->maxy; y++) {
-		int dy = y - src->begin_y;
-		for (x = x0; x < src->maxx; x++) {
+	for (y = 0; y < src->maxy; y++) {
+		int dy = src->begin_y + y;
+		if (dy < 0 || dy >= dst->maxy)
+			continue;
+		for (x = 0; x < src->maxx; x++) {
+			int dx = src->begin_x + x;
 			size_t s = (size_t)y * (size_t)src->maxx + (size_t)x;
-			int dx = x - src->begin_x;
 			size_t d;
-			if (y >= dst->maxy || x >= dst->maxx)
+			if (dx < 0 || dx >= dst->maxx)
 				continue;
 			d = (size_t)dy * (size_t)dst->maxx + (size_t)dx;
 			if (dst->ch[d] != src->ch[s] || dst->attr[d] != src->attr[s]) {
@@ -297,8 +294,8 @@ static void win_copy_into(WINDOW *dst, WINDOW *src)
 			}
 		}
 	}
-	dst->cury = src->cury;
-	dst->curx = src->curx;
+	dst->cury = (short)(src->begin_y + src->cury);
+	dst->curx = (short)(src->begin_x + src->curx);
 }
 
 static void win_free(WINDOW *w)
@@ -320,7 +317,7 @@ static void cell_put(WINDOW *w, int y, int x, unsigned int ch, unsigned int attr
 	i = (size_t)y * (size_t)w->maxx + (size_t)x;
 	if (!(attr & A_COLOR))
 		attr |= (w->bgattr & A_COLOR);
-	attr |= (w->bgattr & A_BOLD) & (attr & A_BOLD ? A_BOLD : 0);
+	attr |= (w->bgattr & (A_ATTRIBUTES & ~A_COLOR));
 	if (w->ch[i] == ch && w->attr[i] == attr)
 		return;
 	w->ch[i] = ch;
@@ -481,7 +478,18 @@ int wnoutrefresh(WINDOW *win)
 		dirty = 1;
 		return OK;
 	}
-	win_copy_into(newscr, win);
+	/* Like ncurses, copy only a window that has been drawn into since its last
+	 * refresh; an untouched window still supplies the terminal cursor position.
+	 * mini-commander relies on this: it refreshes stdscr (the prompt and the
+	 * footer) after the panel windows, and a blind full copy would erase them. */
+	if (win->touched) {
+		win_copy_into(newscr, win);
+		win->touched = 0;
+	} else {
+		/* The cursor is window-relative, like the cells copied above. */
+		newscr->cury = (short)(win->begin_y + win->cury);
+		newscr->curx = (short)(win->begin_x + win->curx);
+	}
 	return OK;
 }
 
@@ -919,9 +927,14 @@ int mvhline(int y, int x, chtype ch, int n)
 
 int wvline(WINDOW *win, chtype ch, int n)
 {
-	int i;
-	for (i = 0; i < n; i++) {
-		waddch(win, ch);
+	int i, x;
+	if (!win)
+		return ERR;
+	/* waddch() advances the column; a vertical line must stay in one column. */
+	x = win->curx;
+	for (i = 0; i < n && win->cury < win->maxy; i++) {
+		cell_put(win, win->cury, x, (unsigned int)(ch & 0x10FFFF),
+			(unsigned int)(ch & A_ATTRIBUTES));
 		if (win->cury + 1 >= win->maxy)
 			break;
 		win->cury = (short)(win->cury + 1);
@@ -1075,8 +1088,10 @@ int wattron(WINDOW *win, attr_t a)
 {
 	if (!win)
 		return ERR;
-	win->bgattr = win->bgattr; /* attributes are composed for individual cells below */
-	(void)a;
+	/* A color pair replaces the previous one (ncurses allows only one pair
+	 * at a time); other attributes are added.  mc relies on this when it
+	 * picks a row color and then the highlight color for the active item. */
+	win->bgattr = (win->bgattr & ~A_COLOR) | (unsigned int)a;
 	return OK;
 }
 
@@ -1549,10 +1564,11 @@ static void mouse_sgr(int button, int x, int y, int press)
 	long now = now_ms();
 	mmask_t st = 0;
 	int btn = (button & 3);
+	int base = button & ~(4 | 8 | 16);   /* without the modifier bits */
 
-	if (button & WHEEL_UP)
+	if (base == WHEEL_UP)
 		st = BUTTON4_PRESSED;
-	else if (button & WHEEL_DOWN)
+	else if (base == WHEEL_DOWN)
 		st = BUTTON5_PRESSED;
 	else if (button & MOTION_BIT)
 		st = (btn == 3 ? BUTTON_MOVED : (btn == 0 ? BUTTON1_MOVED : btn == 1 ? BUTTON2_MOVED : BUTTON3_MOVED));
@@ -1594,6 +1610,54 @@ static void mouse_sgr(int button, int x, int y, int press)
 		mouse_queue(x - 1, y - 1, st);
 }
 
+/* ESC [ < b ; x ; y M (press) or m (release) — coordinates are 1-based */
+static int decode_sgr_mouse(int *code)
+{
+	int c, field = 0, press;
+	int v[3] = {0, 0, 0};
+
+	for (;;) {
+		c = get_byte(ESCDELAY < 20 ? 20 : ESCDELAY);
+		if (c < 0)
+			return 0;
+		if (c >= '0' && c <= '9') {
+			if (field > 2 || v[field] > 100000)
+				return 0;
+			v[field] = v[field] * 10 + (c - '0');
+		} else if (c == ';') {
+			if (++field > 2)
+				return 0;
+		} else if (c == 'M' || c == 'm') {
+			if (v[1] < 1 || v[2] < 1)
+				return 0;
+			press = (c == 'M');
+			mouse_sgr(v[0], v[1], v[2], press);
+			*code = KEY_MOUSE;
+			return KEY_CODE_YES;
+		} else {
+			return 0;
+		}
+	}
+}
+
+/* ESC [ M b x y — X10 encoding, used when SGR (1006) is not enabled.
+ * The bytes carry 32 added to the button and 33 added to the coordinates. */
+static int decode_x10_mouse(int *code)
+{
+	int b = get_byte(ESCDELAY < 20 ? 20 : ESCDELAY);
+	int x = get_byte(ESCDELAY < 20 ? 20 : ESCDELAY);
+	int y = get_byte(ESCDELAY < 20 ? 20 : ESCDELAY);
+
+	if (b < 32 || x < 33 || y < 33)
+		return 0;
+	b -= 32;
+	x -= 32;
+	y -= 32;
+	mouse_sgr(b == 3 ? 0 : b, x, y, b != 3);
+	*code = KEY_MOUSE;
+	return KEY_CODE_YES;
+}
+
 /* read the next byte of the sequence: ESC has already been consumed */
 static int decode_escape(int *code, wint_t *ch)
 {
@@ -1615,7 +1679,7 @@ static int decode_escape(int *code, wint_t *ch)
 			const char *u = userkey[user_i].seq;
 			if (!strncmp(u, "\033", 1))
 				u++; /* ESC already consumed */
-			if ((int)strlen(u) == len && !memcmp(u, seq + 1, (size_t)len)) {
+			if ((int)strlen(u) == len && !memcmp(u, seq, (size_t)len)) {
 				*code = userkey[user_i].code;
 				return KEY_CODE_YES;
 			}
@@ -1623,8 +1687,8 @@ static int decode_escape(int *code, wint_t *ch)
 		if (len >= 2) {
 			char look[34];
 			look[0] = 27;
-			memcpy(look + 1, seq + 1, (size_t)len - 1);
-			look[len] = 0;
+			memcpy(look + 1, seq, (size_t)len);
+			look[len + 1] = 0;
 			for (user_i = 0; baked[user_i].seq; user_i++)
 				if (!strcmp(baked[user_i].seq, look)) {
 					*code = baked[user_i].code;
@@ -1639,13 +1703,22 @@ static int decode_escape(int *code, wint_t *ch)
 		if (c < 0)
 			break;
 		seq[len++] = (char)c;
+		/* Mouse reports start like a CSI sequence but their payload is not
+		 * a key name; consume the rest here instead of leaking it as text. */
+		if (len == 2 && seq[0] == '[' && (seq[1] == '<' || seq[1] == 'M')) {
+			int r = (seq[1] == '<') ? decode_sgr_mouse(code) : decode_x10_mouse(code);
+			if (r == KEY_CODE_YES)
+				return KEY_CODE_YES;
+			*ch = 27;
+			return OK;
+		}
 		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '~') {
 			/* try the whole ESC[...<letter> against the table */
 			char look[34];
 			int i;
 			look[0] = 27;
-			memcpy(look + 1, seq + 1, (size_t)len - 1);
-			look[len] = 0;
+			memcpy(look + 1, seq, (size_t)len);
+			look[len + 1] = 0;
 			for (i = 0; baked[i].seq; i++)
 				if (!strcmp(baked[i].seq, look)) {
 					*code = baked[i].code;
@@ -1655,7 +1728,7 @@ static int decode_escape(int *code, wint_t *ch)
 				const char *u = userkey[i].seq;
 				if (*u == 27)
 					u++;
-				if ((int)strlen(u) == len - 1 && !memcmp(u, seq + 1, (size_t)(len - 1))) {
+				if ((int)strlen(u) == len && !memcmp(u, seq, (size_t)len)) {
 					*code = userkey[i].code;
 					return KEY_CODE_YES;
 				}
@@ -1732,6 +1805,12 @@ int wget_wch(WINDOW *win, wint_t *result)
 	c = get_byte(wait);
 	if (c < 0)
 		return ERR;
+
+	/* The Enter key arrives as CR (ToaruOS's terminal sends \r).  ncurses is
+	 * in nl() mode by default and turns it into NL, which is what mc compares
+	 * against ('\n' runs the command line / confirms a dialog). */
+	if (c == '\r')
+		c = '\n';
 
 	if (c == 27) {
 		int code = 0;
