@@ -1,4 +1,5 @@
 # build artifacts and downloads — everything here can be recreated
+_import/
 _build/
 _output/
 _tmp/

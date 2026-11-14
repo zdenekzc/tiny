@@ -53,7 +53,10 @@ set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BUILD_DIR="${REPO_ROOT}/_build"
-DOWNLOAD="${BUILD_DIR}/download"
+IMPORT_DIR="${REPO_ROOT}/_import"
+BUILD_DOWNLOAD="${IMPORT_DOWNLOAD}"
+IMPORT_DOWNLOAD="${IMPORT_DIR}/download"
+DOWNLOAD="${IMPORT_DOWNLOAD}"
 ISO="${DOWNLOAD}/toaruos-2.3.2.iso"
 TOARU_SRC="${DOWNLOAD}/toaruos-src"
 TCC="${BUILD_DIR}/tcc-toaru/bin/x86_64-toaru-tcc"
@@ -67,6 +70,16 @@ PUSH="${BUILD_DIR}/push"
 SHARE_IMG="${BUILD_DIR}/share.img"
 SHARE_TEST="${BUILD_DIR}/share-test.img"
 VM="${REPO_ROOT}/toaru-vm.sh"
+
+# If cached imports exist, copy them into the build tree before building
+if [[ -d "${IMPORT_DOWNLOAD}/tinycc" ]]; then
+    mkdir -p "${BUILD_DIR}/download"
+    cp -a "${IMPORT_DOWNLOAD}/tinycc" "${BUILD_DIR}/download/"
+fi
+if [[ -d "${IMPORT_DIR}/mini-commander" ]]; then
+    mkdir -p "${BUILD_DIR}/minicmd"
+    cp -a "${IMPORT_DIR}/mini-commander" "${BUILD_DIR}/minicmd/"
+fi
 
 VISIBLE=${VISIBLE:-1}
 HEADLESS=${HEADLESS:-0}   # 1 = headless boot even when a QEMU window is open
@@ -100,6 +113,9 @@ if [[ ! -f "${ISO}" ]]; then
     curl -L --fail -o "${ISO}.part" \
         "https://github.com/klange/toaruos/releases/download/v2.3.2/toaruos-2.3.2.iso"
     mv "${ISO}.part" "${ISO}"
+# Cache ISO in build dir
+mkdir -p "${BUILD_DIR}/download"
+cp -a "${ISO}" "${BUILD_DIR}/download/"
 fi
 
 # ------------------------------------------------------- 2) ToaruOS sources
