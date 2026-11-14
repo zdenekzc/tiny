@@ -116,7 +116,15 @@ if [[ ! -f "${ISO}" ]]; then
 # Cache ISO in build dir
 mkdir -p "${BUILD_DIR}/download"
 cp -a "${ISO}" "${BUILD_DIR}/download/"
+# Also copy to name expected by mktcc.sh
+cp -a "${ISO}" "${BUILD_DIR}/download/toaruos-2.3.2.iso"
 fi
+# Ensure ISO is available in build directory for tools expecting the old name
+mkdir -p "${BUILD_DIR}/download"
+# Copy the image (may already exist) to the generic name used by mklibc.sh
+cp -a "${ISO}" "${BUILD_DIR}/download/"
+# Also copy to the historic toaruos-2.3.2.iso name expected by older scripts
+cp -a "${ISO}" "${BUILD_DIR}/download/toaruos-2.3.2.iso"
 
 # ------------------------------------------------------- 2) ToaruOS sources
 if [[ ! -d "${TOARU_SRC}" ]]; then
