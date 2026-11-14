@@ -262,7 +262,7 @@ SRC="${PUSH}" IMG="${SHARE_IMG}" MB="${MB}" "${REPO_ROOT}/mkshare.sh"
 demo() {
     cp "${SHARE_IMG}" "${SHARE_TEST}"
     local rc=0 text
-    echo "== starting the control (headless) ToaruOS ..."
+    echo "== starting the control ToaruOS ..."
     VISIBLE=0 HEADLESS=1 SHARE="${SHARE_TEST}" "${VM}" start > /dev/null
     VM_TEST_STARTED=1
 
