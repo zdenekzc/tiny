@@ -110,8 +110,15 @@ need gcc
 mkdir -p "${DOWNLOAD}"
 if [[ ! -f "${ISO}" ]]; then
     echo "== downloading ToaruOS 2.3.2 ISO ..."
-    curl -L --fail -o "${ISO}.part" \
-        "https://github.com/klange/toaruos/releases/download/v2.3.2/image.iso"
+    # Try primary URL, fallback if it fails
+    ISO_URL="https://github.com/klange/toaruos/releases/download/2.3.2/toaruos-2.3.2.iso"
+    FALLBACK_URL="https://github.com/klange/toaruos/releases/latest/download/toaruos-2.3.2.iso"
+    if ! curl -L --fail -o "${ISO}.part" "$ISO_URL"; then
+        echo "Primary ISO URL failed, trying fallback..."
+        if ! curl -L --fail -o "${ISO}.part" "$FALLBACK_URL"; then
+            die "Failed to download ToaruOS ISO from both URLs"
+        fi
+    fi
     mv "${ISO}.part" "${ISO}"
 # Cache ISO in build dir
 mkdir -p "${BUILD_DIR}/download"

@@ -1,6 +1,9 @@
 # build artifacts and downloads — everything here can be recreated
 _import/
 _build/
+!_build/minicmd/
+!_build/minicmd/mini-commander/
+!_build/minicmd/mini-commander/**
 _output/
 _tmp/
 

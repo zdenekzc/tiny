@@ -11,7 +11,7 @@
 set -euo pipefail
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-ISO=${ISO:-${DIR}/_build/download/toaruos-2.3.2.iso}
+ISO=${ISO:-${DIR}/_import/download/image.iso}
 OUT=${OUT:-${DIR}/_build/toaru-lib}
 INC=${INC:-${DIR}/_build/toaru-include}
 
