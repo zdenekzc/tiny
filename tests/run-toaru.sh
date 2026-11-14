@@ -11,33 +11,31 @@
 #        - a cross compiler on the host (_build/tcc-toaru/bin/x86_64-toaru-tcc),
 #        - a tcc that runs INSIDE ToaruOS (_build/tcc-toaru/tcc-guest),
 #   4. downloads mini-commander and compiles it with the cross tcc (_output/mc),
-#   5. downloads the Nuklear header (only into /share, not used yet),
-#   6. prepares the ext2 image _build/share.img with:
-#        /mc, /tcc_test, /tcc_test.c, /tcc/{bin/tcc,include,lib},
-#        /tests/examples/*.c, /toaruos-src, /compile_examples.sh,
-#        /gcc_hello (built on the host by gcc-toaru.sh, when gcc is present),
+#   5. downloads the Nuklear header (browsing only),
+#   6. builds _build/custom.iso via mc-toaru/mkiso.sh: ALL files (mc, tcc,
+#      examples, sources, ...) are placed INSIDE the ramdisk (ramdisk.igz),
+#      so the guest sees them directly on / — no shared disk and no mounting.
 #   7. starts a HEADLESS (no window) control VM and verifies:
-#        - /share/tcc_test (program compiled by the cross tcc),
-#        - tcc inside ToaruOS compiles and runs /share/tcc_hello.c,
-#        - every example in /share compiles and runs,
-#        - /share/gcc_hello (built by the HOST gcc, see gcc-toaru.sh) runs,
+#        - /tcc_test (program compiled by the cross tcc),
+#        - tcc inside ToaruOS compiles and runs /tcc_hello.c,
+#        - every example in / compiles and runs,
+#        - /gcc_hello (built by the HOST gcc, see gcc-toaru.sh) runs,
 #        - mini-commander starts, draws its panels with a highlighted current
 #          item, executes its command line on Enter and quits with F10 or a
 #          mouse click on the F10 footer,
-#   8. starts a VISIBLE ToaruOS in QEMU and mounts the shared disk at /share:
-#        - visible boot: closes the welcome tutorial, double-clicks the
-#          Terminal icon (QMP absolute pointer) and types the mount commands
-#          with QEMU sendkey (the graphical session is "local"),
+#   8. starts a VISIBLE ToaruOS in QEMU:
+#        - visible boot: closes the welcome tutorial and opens the Terminal
+#          (QMP absolute pointer + sendkey; the graphical session is "local"),
 #        - headless boot: uses the getty on the serial line as root.
 #      The VM is then left running.
 #
 # Inside the visible ToaruOS open the Terminal and run:
 #
-#   /share/tcc/bin/tcc -o /tmp/hello /share/tcc_hello.c ; /tmp/hello
-#   /share/mc /share
+#   /tcc/bin/tcc -o /tmp/hello /tcc_hello.c ; /tmp/hello
+#   mc /
 #
-# (When the VM is started by hand with ./toaru-vm.sh start, mount the disk
-#  first: mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /share)
+# (When the VM is started by hand, pass the custom ISO:
+#  ISO=_build/custom.iso ./toaru-vm.sh start)
 #
 # Shutdown:  ./toaru-vm.sh stop
 #
@@ -45,8 +43,7 @@
 #   VISIBLE=0     no QEMU window (serial line only; automatic check still runs)
 #   HEADLESS=1    force headless boot even for the visible VM
 #   DEMO=0        skip the automatic control VM
-#   AUTOMOUNT=0   do not mount the shared disk automatically
-#   MB=128        share.img size in MiB (default 64, enough even with sources)
+#   MB=64         size of the (unused) blank IDE disk in MiB
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -84,9 +81,8 @@ fi
 VISIBLE=${VISIBLE:-1}
 HEADLESS=${HEADLESS:-0}   # 1 = headless boot even when a QEMU window is open
 DEMO=${DEMO:-1}
-AUTOMOUNT=${AUTOMOUNT:-1}
 MB=${MB:-64}
-EMBEDDED=1 # Use files embedded in ISO instead of ext2 share
+BOOT_ISO=""
 
 die() { echo "error: $*" >&2; exit 1; }
 need() { command -v "$1" > /dev/null 2>&1 || die "missing program '$1'"; }
@@ -104,8 +100,12 @@ need curl
 need git
 need qemu-system-x86_64
 need python3
-need 7z
 need gcc
+need isoinfo
+need genisoimage
+need mkfs.fat
+need mmd
+need mcopy
 
 # ---------------------------------------------------------------- 1) ISO
 mkdir -p "${DOWNLOAD}"
@@ -171,8 +171,11 @@ if [[ ! -s "${NUKLEAR}" ]]; then
     mv "${NUKLEAR}.part" "${NUKLEAR}"
 fi
 
-# -------------------------------------------- 6) shared disk contents
-echo "== preparing contents of ${SHARE_IMG} ..."
+# -------------------------------------------- 6) ramdisk contents
+# Everything the guest needs is collected in _build/push/ and copied INTO the
+# ramdisk (ramdisk.igz) by mc-toaru/mkiso.sh — the guest sees the files
+# directly on /; there is no shared disk and nothing is mounted.
+echo "== preparing the ramdisk payload ..."
 rm -rf "${PUSH}"
 mkdir -p "${PUSH}/tcc/bin" "${PUSH}/tcc/lib" "${PUSH}/toaruos-src"
 
@@ -200,7 +203,7 @@ if command -v gcc > /dev/null 2>&1 && command -v ld > /dev/null 2>&1; then
     "${REPO_ROOT}/gcc-toaru.sh" -o "${GCC_TEST}" "${REPO_ROOT}/tests/gcc/hello.c" \
         || die "gcc-toaru.sh failed"
 else
-    echo "note: gcc/ld not found — /share/gcc_hello will not be built"
+    echo "note: gcc/ld not found — /gcc_hello will not be built"
 fi
 
 # Nuklear (for browsing only for now; the term backend is not part of the image)
@@ -216,15 +219,14 @@ cp "${NUKLEAR}" "${PUSH}/nuklear.h"
 {
     cat <<'GUEST_EOF'
 #!/bin/sh
-# Compiles and runs all *.c in /share.  Output goes to /tmp so that
-# nothing is written to the disk image (ata.ko flushes writes only partially).
+# Compiles and runs all *.c in /.  Output goes to /tmp so that
+# nothing is written to the ramdisk.
 #
-#   /share/compile_examples.sh
+#   /compile_examples.sh
 #
-# All sources in /share are plain C and TinyCC compiles and runs them;
+# All sources in / are plain C and TinyCC compiles and runs them;
 # tcc_test.c is the test program from tcc/toaru.
-if not stat -q /tcc/bin/tcc then echo "Disk is not mounted. First run:"
-if not stat -q /tcc/bin/tcc then echo "  mkdir -p /; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /"
+if not stat -q /tcc/bin/tcc then echo "tcc is missing from the ramdisk"
 if not stat -q /tcc/bin/tcc then exit 1
 
 GUEST_EOF
@@ -243,7 +245,7 @@ cat > "${PUSH}/README.txt" <<'GUEST_EOF'
 ToaruOS + TinyCC + mini-commander
 =================================
 
-Files are directly available on the ISO root (no /share mount needed).
+All files are part of the ramdisk — no disk needs to be mounted.
 
 TinyCC inside ToaruOS:
 
@@ -252,7 +254,7 @@ TinyCC inside ToaruOS:
 
 mini-commander:
 
-    /mc /
+    /mc /          (also installed as /bin/mc)
 
 /tcc contains the whole sysroot (include/, lib/crt0.o, libc.a, libtcc1.a),
 /toaruos-src contains the sources of ToaruOS 2.3.2.
@@ -260,27 +262,30 @@ mini-commander:
 TinyCC: same ToaruOS libc, different compiler.
 GUEST_EOF
 
-if [[ -z "${EMBEDDED}" ]]; then
-    SRC="${PUSH}" IMG="${SHARE_IMG}" MB="${MB}" "${REPO_ROOT}/mkshare.sh"
-else
-    # Embed push files into a new ISO
-    EMBEDDED_ISO="${BUILD_DIR}/custom.iso"
-    if [[ ! -f "${EMBEDDED_ISO}" ]]; then
-        echo "== embedding push files into ISO ..."
-        TMPISO=$(mktemp -d)
-        trap 'rm -rf "$TMPISO"' EXIT
-        7z x -y -o"$TMPISO" "${ISO}" > /dev/null
-        cp -a "${PUSH}/." "$TMPISO/"
-        genisoimage -V "TOARUOS" -b boot.sys -c bootcat -no-emul-boot -boot-load-size 4 -boot-info-table -o "${EMBEDDED_ISO}" "$TMPISO"
-    fi
+# a tiny directory with a predictable layout, used by the automatic mc
+# viewer/editor check (one Down arrow lands on README.txt)
+mkdir -p "${PUSH}/demo"
+cp "${PUSH}/README.txt" "${PUSH}/demo/README.txt"
+
+# toaru-vm.sh always attaches one IDE disk; it is no longer used to carry
+# data, so keep a small blank image around for it.
+if [[ ! -s "${SHARE_IMG}" ]]; then
+    echo "== creating blank disk image ${SHARE_IMG} ..."
+    truncate -s "${MB}M" "${SHARE_IMG}"
 fi
+
+# Build the bootable ISO: every file from PUSH goes into the ramdisk, and the
+# patched mc is additionally installed as /bin/mc so it is on PATH.
+echo "== building ramdisk ISO ..."
+BOOT_ISO="${BUILD_DIR}/custom.iso"
+"${REPO_ROOT}/mc-toaru/mkiso.sh" "${BOOT_ISO}" || die "mkiso.sh failed"
 
 # ------------------------------------- 7) automatic check in a headless VM
 demo() {
     cp "${SHARE_IMG}" "${SHARE_TEST}"
     local rc=0 text
     echo "== starting the control ToaruOS ..."
-    VISIBLE=0 HEADLESS=1 ISO="${EMBEDDED_ISO}" SHARE="${SHARE_TEST}" "${VM}" start > /dev/null
+    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" SHARE="${SHARE_TEST}" "${VM}" start > /dev/null
     VM_TEST_STARTED=1
 
     local i
@@ -310,34 +315,29 @@ demo() {
     # CR (Enter) and for escape sequences whose trailing NL would be read as Enter.
     send_raw() { printf '%s' "$1" > "${BUILD_DIR}/work/in"; }
 
-    if [[ -z "${EMBEDDED}" ]]; then
-"${VM}" send 'mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda /share; echo __MNT__'
-    wait_for __MNT__ || { echo "  *** /share did not mount"; rc=1; return $rc; }
-
-    "${VM}" send '/share/tcc_test; echo __T1__'
-    wait_for __T1__ || { echo "  *** /share/tcc_test did not finish"; rc=1; return $rc; }
+    "${VM}" send '/tcc_test; echo __T1__'
+    wait_for __T1__ || { echo "  *** /tcc_test did not finish"; rc=1; return $rc; }
 
     # esh does not handle && (only ;), hence two commands in a row
-    "${VM}" send '/share/tcc/bin/tcc -o /tmp/tcc_hello /share/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
+    "${VM}" send '/tcc/bin/tcc -o /tmp/tcc_hello /tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
     wait_for __T2__ || { echo "  *** tcc in ToaruOS did not compile tcc_hello.c"; rc=1; return $rc; }
 
     # The same C library, but the program was compiled by the HOST gcc.
     if [[ -f "${GCC_TEST}" ]]; then
-        "${VM}" send '/share/gcc_hello; echo __T4__'
-        wait_for __T4__ || { echo "  *** /share/gcc_hello (host gcc) did not finish"; rc=1; return $rc; }
+        "${VM}" send '/gcc_hello; echo __T4__'
+        wait_for __T4__ || { echo "  *** /gcc_hello (host gcc) did not finish"; rc=1; return $rc; }
     fi
 
-    "${VM}" send '/share/compile_examples.sh; echo __T3__'
+    "${VM}" send '/compile_examples.sh; echo __T3__'
     wait_for __T3__ || { echo "  *** compile_examples.sh did not finish"; rc=1; return $rc; }
 
     # mc exits with F10; we send the escape sequences directly (F9 = ESC[20~,
     # F10 = ESC[21~).  If the parser loses the CSI prefix, "20~"/"21~" ends up
     # on the terminal as text (that was a real bug), so check for both.
-    if [[ -z "${EMBEDDED}" ]]; then
-    "${VM}" send '/share/mc /share'
-else
-    "${VM}" send '/mc /'
-fi
+    # Everything lives in the ramdisk; /demo has a predictable layout so the
+    # one Down arrow below always lands on README.txt.
+    local mc_cmd='/mc /demo'
+    "${VM}" send "$mc_cmd"
     sleep 3
 
     # Enter arrives from the terminal as CR; the ncurses shim has to translate
@@ -358,7 +358,7 @@ fi
     # which ToaruOS does not implement, and then parsed the NULL pointer.
     # Move down to README.txt, open both, and quit each with F10.
     local dn
-    for dn in 1 2 3 4 5; do
+    for dn in 1; do
         send_raw "$(printf '\033[B')"
         sleep 0.3
     done
@@ -385,11 +385,7 @@ fi
 
     # A mouse click on the F10 footer must work too.  The getty terminal is
     # 80x24 and SGR coordinates are 1-based, so (75,24) is the last footer slot.
-    if [[ -z "${EMBEDDED}" ]]; then
-    "${VM}" send '/share/mc /share'
-else
-    "${VM}" send '/mc /'
-fi
+    "${VM}" send "$mc_cmd"
     sleep 3
     send_raw "$(printf '\033[<0;75;24M\033[<0;75;24m')"
     sleep 2
@@ -430,7 +426,7 @@ fi
     if [[ ${ok_count:-0} -lt 6 ]]; then
         echo "  *** only ${ok_count:-0} of the 6 examples printed O.K."; rc=1
     fi
-    btree_out=$(sed -n '/^== \/share\/btree\.c$/,/^== \/share\/heapsort\.c$/p' <<< "$text")
+    btree_out=$(sed -n '/^== \/btree\.c$/,/^== \/heapsort\.c$/p' <<< "$text")
     if ! grep -aqx '800' <<< "$btree_out"; then
         echo "  *** btree did not print its last key (800)"; rc=1
     fi
@@ -439,7 +435,7 @@ fi
     # text itself: the screen is updated cell by cell, so a space that is
     # already on the screen is not sent to the terminal again and the log would
     # show "TinyCC+ mini-commander".
-    if ! grep -aqE '/share/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' <<< "$text"; then
+    if ! grep -aqE '/demo/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' <<< "$text"; then
         echo "  *** the F3 viewer did not open README.txt"; rc=1
     fi
     if ! grep -aq 'U+0054' <<< "$text"; then
@@ -451,14 +447,13 @@ fi
     if ! grep -aq 'Quit' <<< "$text"; then
         echo "  *** mini-commander did not draw (the Quit hint is missing)"; rc=1
     fi
-    if ! grep -aq -- '-- /share --' <<< "$text"; then
+    if ! grep -aq -- '-- /demo --' <<< "$text"; then
         echo "  *** mini-commander did not draw the file panels"; rc=1
     fi
     # The current item is drawn black on cyan (SGR 30;46).  If wattron() does
     # not store the color pair, every row keeps the plain panel background.
     if ! grep -aqF $'\033[0;30;46m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
         echo "  *** the current panel item is not highlighted"; rc=1
-    fi
     fi
 
     "${VM}" stop > /dev/null 2>&1 || true
@@ -476,7 +471,7 @@ fi
 
 if [[ "${DEMO}" == 1 ]]; then
     if ! demo; then
-        echo "Automatic check failed; the image ${SHARE_IMG} is ready anyway." >&2
+        echo "Automatic check failed; the ISO ${BOOT_ISO} is ready anyway." >&2
         exit 1
     fi
 fi
@@ -489,10 +484,10 @@ fi
 
 if [[ "${VISIBLE}" == 1 ]]; then
     echo "== starting visible ToaruOS in QEMU (the window opens in ~15 s) ..."
-    VISIBLE=1 HEADLESS="${HEADLESS}" "${VM}" start
+    VISIBLE=1 HEADLESS="${HEADLESS}" ISO="${BOOT_ISO}" "${VM}" start
 else
     echo "== starting ToaruOS without a window (serial line) ..."
-    VISIBLE=0 HEADLESS=1 "${VM}" start
+    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" "${VM}" start
 fi
 
 # A graphical boot does not run the serial getty: 99_runstart.sh starts yutani
@@ -605,105 +600,25 @@ qmp_double_click() {
     qmp_click "$@" || return 1
 }
 
-mount_share_serial() {
-    local i
-    for i in $(seq 1 60); do
-        "${VM}" log 2000 2>/dev/null | grep -aq 'root@livecd' && break
-        sleep 1
-    done
-    "${VM}" send 'mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /share; echo __SHARE_MOUNTED__'
-    for i in $(seq 1 30); do
-        "${VM}" log 2000 2>/dev/null | grep -qx '__SHARE_MOUNTED__' && return 0
-        sleep 1
-    done
-    return 1
-}
+# There is nothing to mount: every file travels inside ramdisk.igz and the
+# guest sees it directly on /.
 
-mount_share_gui() {
-    # The graphical boot shows the "Welcome to ToaruOS!" tutorial first and has
-    # no Terminal open; checking the serial log tells us nothing here.
-    echo "== waiting for the graphical session ..."
-    sleep 25
-    focus_qemu || echo "warning: cannot focus the QEMU window (wmctrl/xdotool); continuing" >&2
-    sleep 1
-
-    # Close the first-boot tutorial (harmless when it is already gone).
-    press_key esc
-    sleep 2
-
-    local w h tx ty i text
-    if ! read -r w h < <(guest_screen_size); then
-        echo "warning: could not read the guest screen size" >&2
-        return 1
-    fi
-    [[ -n ${w:-} && -n ${h:-} ]] || {
-        echo "warning: could not read the guest screen size" >&2; return 1; }
-    # Terminal icon in the top-left corner of the desktop (measured at
-    # 1920x1080; scale in case the guest picks another mode).
-    tx=$(( 64 * w / 1920 ))
-    ty=$(( 190 * h / 1080 ))
-    qmp_double_click "${tx}" "${ty}" "${w}" "${h}" || return 1
-    sleep 3
-
-    # The first sudo asks for the live CD user's password (local/local).  The
-    # commands are typed slowly: sendkey holds each key for ~100 ms and the
-    # Terminal drops keys when they arrive too fast.
-    type_in_guest 'sudo mkdir -p /share' 0.12 || return 1
-    sleep 2
-    type_in_guest 'local' 0.12 || return 1
-    sleep 2
-    type_in_guest 'sudo insmod /mod/ext2.ko' 0.1 || return 1
-    sleep 1
-    type_in_guest 'sudo mount ext2 /dev/hda,rw /share' 0.1 || return 1
-    sleep 1
-
-    # Verify from the host.  local cannot redirect into /dev/ttyS1 (the live
-    # session does not set supplementary groups), but root can, so copy a file
-    # from the mounted disk there: if the README text reaches the serial log,
-    # /share really is mounted.
-    type_in_guest 'sudo cp /share/README.txt /dev/ttyS1' 0.1 || return 1
-    for i in $(seq 1 20); do
-        text=$("${VM}" log 200000 2>/dev/null || true)
-        if grep -aq 'ToaruOS + TinyCC + mini-commander' <<< "$text"; then
-            return 0
-        fi
-        sleep 1
-    done
-    return 1
-}
-
-MOUNTED_TEXT="Mount the shared disk in the Terminal first (see below)."
-if [[ "${AUTOMOUNT}" == 1 ]]; then
-    if [[ "${VISIBLE}" == 1 && "${HEADLESS}" == 0 ]]; then
-        if mount_share_gui; then
-            echo "== /share is mounted in the graphical session"
-            MOUNTED_TEXT="The shared disk was mounted at /share automatically."
-        else
-            echo "warning: /share was not mounted automatically; mount it in the Terminal" >&2
-        fi
-    elif mount_share_serial; then
-        echo "== /share is mounted in the guest"
-        MOUNTED_TEXT="The shared disk was mounted at /share automatically."
-    else
-        echo "warning: /share was not mounted automatically; mount it manually (see below)" >&2
-    fi
-fi
+MC_NOTE="All files (mc, tcc, examples, sources) live in the ramdisk — no disk is mounted."
+START_HINT="ISO=${BOOT_ISO} ./toaru-vm.sh start"
 
 cat <<EOF
 
 Done. ToaruOS is running (log: ${BUILD_DIR}/work/out.log).
-${MOUNTED_TEXT}
+${MC_NOTE}
 
 In the ToaruOS window open the Terminal and run:
 
-    /share/tcc/bin/tcc -o /tmp/hello /share/tcc_hello.c ; /tmp/hello
-    /share/mc /share
+    /tcc/bin/tcc -o /tmp/hello /tcc_hello.c ; /tmp/hello
+    mc /          (also /bin/mc /)
 
-If you start the VM later with ./toaru-vm.sh start, mount the disk first:
+If you start the VM later by hand, pass the custom ISO:
 
-    mkdir -p /share
-    insmod /mod/ext2.ko
-    mount ext2 /dev/hda,rw /share
+    ${START_HINT}
 
 Shutting down the VM:  ./toaru-vm.sh stop
 Serial line (only with HEADLESS=1):  ./toaru-vm.sh send 'command'
