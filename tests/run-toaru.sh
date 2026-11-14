@@ -86,6 +86,7 @@ HEADLESS=${HEADLESS:-0}   # 1 = headless boot even when a QEMU window is open
 DEMO=${DEMO:-1}
 AUTOMOUNT=${AUTOMOUNT:-1}
 MB=${MB:-64}
+EMBEDDED=1 # Use files embedded in ISO instead of ext2 share
 
 die() { echo "error: $*" >&2; exit 1; }
 need() { command -v "$1" > /dev/null 2>&1 || die "missing program '$1'"; }
@@ -222,18 +223,18 @@ cp "${NUKLEAR}" "${PUSH}/nuklear.h"
 #
 # All sources in /share are plain C and TinyCC compiles and runs them;
 # tcc_test.c is the test program from tcc/toaru.
-if not stat -q /share/tcc/bin/tcc then echo "Disk is not mounted. First run:"
-if not stat -q /share/tcc/bin/tcc then echo "  mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /share"
-if not stat -q /share/tcc/bin/tcc then exit 1
+if not stat -q /tcc/bin/tcc then echo "Disk is not mounted. First run:"
+if not stat -q /tcc/bin/tcc then echo "  mkdir -p /; insmod /mod/ext2.ko; mount ext2 /dev/hda,rw /"
+if not stat -q /tcc/bin/tcc then exit 1
 
 GUEST_EOF
     for src in "${PUSH}"/*.c; do
         name=$(basename "$src" .c)
-        printf 'echo "== /share/%s.c"\n' "$name"
+        printf 'echo "== /%s.c"\n' "$name"
         printf 'if stat -q "/tmp/%s" then rm "/tmp/%s"\n' "$name" "$name"
-        printf '/share/tcc/bin/tcc -o "/tmp/%s" "/share/%s.c"\n' "$name" "$name"
+        printf '/tcc/bin/tcc -o "/tmp/%s" "/%s.c"\n' "$name" "$name"
         printf 'if stat -q "/tmp/%s" then "/tmp/%s"\n' "$name" "$name"
-        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /share/%s.c"\n\n' "$name" "$name"
+        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /%s.c"\n\n' "$name" "$name"
     done
 } > "${PUSH}/compile_examples.sh"
 chmod +x "${PUSH}/compile_examples.sh"
@@ -242,35 +243,44 @@ cat > "${PUSH}/README.txt" <<'GUEST_EOF'
 ToaruOS + TinyCC + mini-commander
 =================================
 
-Mount the disk (in the Terminal or on the serial line):
-
-    mkdir -p /share
-    insmod /mod/ext2.ko
-    mount ext2 /dev/hda,rw /share
+Files are directly available on the ISO root (no /share mount needed).
 
 TinyCC inside ToaruOS:
 
-    /share/tcc/bin/tcc -o /tmp/hello /share/tcc_hello.c ; /tmp/hello
-    /share/compile_examples.sh
+    /tcc/bin/tcc -o /tmp/hello /tcc_hello.c ; /tmp/hello
+    /compile_examples.sh
 
 mini-commander:
 
-    /share/mc /share
+    /mc /
 
-/share/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a, libtcc1.a),
-/share/toaruos-src contains the sources of ToaruOS 2.3.2.
-/share/gcc_hello was built on the host by the host gcc (gcc-toaru.sh), not by
+/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a, libtcc1.a),
+/toaruos-src contains the sources of ToaruOS 2.3.2.
+/gcc_hello was built on the host by the host gcc (gcc-toaru.sh), not by
 TinyCC: same ToaruOS libc, different compiler.
 GUEST_EOF
 
-SRC="${PUSH}" IMG="${SHARE_IMG}" MB="${MB}" "${REPO_ROOT}/mkshare.sh"
+if [[ -z "${EMBEDDED}" ]]; then
+    SRC="${PUSH}" IMG="${SHARE_IMG}" MB="${MB}" "${REPO_ROOT}/mkshare.sh"
+else
+    # Embed push files into a new ISO
+    EMBEDDED_ISO="${BUILD_DIR}/custom.iso"
+    if [[ ! -f "${EMBEDDED_ISO}" ]]; then
+        echo "== embedding push files into ISO ..."
+        TMPISO=$(mktemp -d)
+        trap 'rm -rf "$TMPISO"' EXIT
+        7z x -y -o"$TMPISO" "${ISO}" > /dev/null
+        cp -a "${PUSH}/." "$TMPISO/"
+        genisoimage -V "TOARUOS" -b boot.sys -c bootcat -no-emul-boot -boot-load-size 4 -boot-info-table -o "${EMBEDDED_ISO}" "$TMPISO"
+    fi
+fi
 
 # ------------------------------------- 7) automatic check in a headless VM
 demo() {
     cp "${SHARE_IMG}" "${SHARE_TEST}"
     local rc=0 text
     echo "== starting the control ToaruOS ..."
-    VISIBLE=0 HEADLESS=1 SHARE="${SHARE_TEST}" "${VM}" start > /dev/null
+    VISIBLE=0 HEADLESS=1 ISO="${EMBEDDED_ISO}" SHARE="${SHARE_TEST}" "${VM}" start > /dev/null
     VM_TEST_STARTED=1
 
     local i
@@ -300,7 +310,8 @@ demo() {
     # CR (Enter) and for escape sequences whose trailing NL would be read as Enter.
     send_raw() { printf '%s' "$1" > "${BUILD_DIR}/work/in"; }
 
-    "${VM}" send 'mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda /share; echo __MNT__'
+    if [[ -z "${EMBEDDED}" ]]; then
+"${VM}" send 'mkdir -p /share; insmod /mod/ext2.ko; mount ext2 /dev/hda /share; echo __MNT__'
     wait_for __MNT__ || { echo "  *** /share did not mount"; rc=1; return $rc; }
 
     "${VM}" send '/share/tcc_test; echo __T1__'
@@ -322,7 +333,11 @@ demo() {
     # mc exits with F10; we send the escape sequences directly (F9 = ESC[20~,
     # F10 = ESC[21~).  If the parser loses the CSI prefix, "20~"/"21~" ends up
     # on the terminal as text (that was a real bug), so check for both.
+    if [[ -z "${EMBEDDED}" ]]; then
     "${VM}" send '/share/mc /share'
+else
+    "${VM}" send '/mc /'
+fi
     sleep 3
 
     # Enter arrives from the terminal as CR; the ncurses shim has to translate
@@ -370,7 +385,11 @@ demo() {
 
     # A mouse click on the F10 footer must work too.  The getty terminal is
     # 80x24 and SGR coordinates are 1-based, so (75,24) is the last footer slot.
+    if [[ -z "${EMBEDDED}" ]]; then
     "${VM}" send '/share/mc /share'
+else
+    "${VM}" send '/mc /'
+fi
     sleep 3
     send_raw "$(printf '\033[<0;75;24M\033[<0;75;24m')"
     sleep 2
@@ -439,6 +458,7 @@ demo() {
     # not store the color pair, every row keeps the plain panel background.
     if ! grep -aqF $'\033[0;30;46m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
         echo "  *** the current panel item is not highlighted"; rc=1
+    fi
     fi
 
     "${VM}" stop > /dev/null 2>&1 || true
