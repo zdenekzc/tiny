@@ -54,8 +54,8 @@ set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BUILD_DIR="${REPO_ROOT}/_build"
 IMPORT_DIR="${REPO_ROOT}/_import"
-BUILD_DOWNLOAD="${IMPORT_DOWNLOAD}"
 IMPORT_DOWNLOAD="${IMPORT_DIR}/download"
+BUILD_DOWNLOAD="${BUILD_DIR}/download"
 DOWNLOAD="${IMPORT_DOWNLOAD}"
 ISO="${DOWNLOAD}/toaruos-2.3.2.iso"
 TOARU_SRC="${DOWNLOAD}/toaruos-src"
