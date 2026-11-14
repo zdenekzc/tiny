@@ -15,10 +15,12 @@
 #   6. prepares the ext2 image _build/share.img with:
 #        /mc, /tcc_test, /tcc_test.c, /tcc/{bin/tcc,include,lib},
 #        /tests/examples/*.c, /toaruos-src, /compile_examples.sh,
+#        /gcc_hello (built on the host by gcc-toaru.sh, when gcc is present),
 #   7. starts a HEADLESS (no window) control VM and verifies:
 #        - /share/tcc_test (program compiled by the cross tcc),
 #        - tcc inside ToaruOS compiles and runs /share/tcc_hello.c,
 #        - every example in /share compiles and runs,
+#        - /share/gcc_hello (built by the HOST gcc, see gcc-toaru.sh) runs,
 #        - mini-commander starts, draws its panels with a highlighted current
 #          item, executes its command line on Enter and quits with F10 or a
 #          mouse click on the F10 footer,
@@ -158,6 +160,17 @@ cp -a "${SYSROOT}/include" "${PUSH}/tcc/include"
 cp "${REPO_ROOT}/tests/examples/"*.c "${PUSH}/"
 cp "${REPO_ROOT}/tcc/toaru/test.c" "${PUSH}/tcc_test.c"
 
+# A program built on the HOST by the host gcc — the route a developer would
+# use for their own C (gcc + GNU ld + toaru-elfpad.py, see gcc-toaru.sh).
+# TinyCC is not involved; the control VM below checks that it really runs.
+GCC_TEST="${PUSH}/gcc_hello"
+if command -v gcc > /dev/null 2>&1 && command -v ld > /dev/null 2>&1; then
+    "${REPO_ROOT}/gcc-toaru.sh" -o "${GCC_TEST}" "${REPO_ROOT}/tests/gcc/hello.c" \
+        || die "gcc-toaru.sh failed"
+else
+    echo "note: gcc/ld not found — /share/gcc_hello will not be built"
+fi
+
 # Nuklear (for browsing only for now; the term backend is not part of the image)
 cp "${NUKLEAR}" "${PUSH}/nuklear.h"
 
@@ -215,6 +228,8 @@ mini-commander:
 
 /share/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a, libtcc1.a),
 /share/toaruos-src contains the sources of ToaruOS 2.3.2.
+/share/gcc_hello was built on the host by the host gcc (gcc-toaru.sh), not by
+TinyCC: same ToaruOS libc, different compiler.
 GUEST_EOF
 
 SRC="${PUSH}" IMG="${SHARE_IMG}" MB="${MB}" "${REPO_ROOT}/mkshare.sh"
@@ -263,6 +278,12 @@ demo() {
     # esh does not handle && (only ;), hence two commands in a row
     "${VM}" send '/share/tcc/bin/tcc -o /tmp/tcc_hello /share/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
     wait_for __T2__ || { echo "  *** tcc in ToaruOS did not compile tcc_hello.c"; rc=1; return $rc; }
+
+    # The same C library, but the program was compiled by the HOST gcc.
+    if [[ -f "${GCC_TEST}" ]]; then
+        "${VM}" send '/share/gcc_hello; echo __T4__'
+        wait_for __T4__ || { echo "  *** /share/gcc_hello (host gcc) did not finish"; rc=1; return $rc; }
+    fi
 
     "${VM}" send '/share/compile_examples.sh; echo __T3__'
     wait_for __T3__ || { echo "  *** compile_examples.sh did not finish"; rc=1; return $rc; }
@@ -350,6 +371,9 @@ demo() {
     if grep -aq 'tcc failed on' <<< "$text"; then
         echo "  *** tcc inside ToaruOS failed to compile an example"; rc=1
     fi
+    if [[ -f "${GCC_TEST}" ]] && ! grep -aq 'gcc_sum: 15' <<< "$text"; then
+        echo "  *** the program built by the host gcc did not print its sum"; rc=1
+    fi
     # six examples end with O.K.; btree just prints its keys (last one is 800)
     local ok_count btree_out
     ok_count=$(grep -ac '^O\.K\.$' <<< "$text" || true)
@@ -360,7 +384,12 @@ demo() {
     if ! grep -aqx '800' <<< "$btree_out"; then
         echo "  *** btree did not print its last key (800)"; rc=1
     fi
-    if ! grep -aq '21/21' <<< "$text"; then
+    # The viewer draws its status bar as "<file> ... <last>/<lines> <pct>%"
+    # (the editor instead has "L:[...]" and "U+...").  Do not look for the file
+    # text itself: the screen is updated cell by cell, so a space that is
+    # already on the screen is not sent to the terminal again and the log would
+    # show "TinyCC+ mini-commander".
+    if ! grep -aqE '/share/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' <<< "$text"; then
         echo "  *** the F3 viewer did not open README.txt"; rc=1
     fi
     if ! grep -aq 'U+0054' <<< "$text"; then
@@ -385,7 +414,9 @@ demo() {
     VM_TEST_STARTED=0
 
     if [[ $rc == 0 ]]; then
-        echo "== check OK: tcc_test, tcc inside ToaruOS, all examples and mini-commander work"
+        local extra=
+        [[ -f "${GCC_TEST}" ]] && extra=", the program built by the host gcc"
+        echo "== check OK: tcc_test, tcc inside ToaruOS, all examples${extra} and mini-commander work"
     else
         echo "== check FOUND A PROBLEM (see above)"
     fi

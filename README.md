@@ -43,10 +43,12 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
 6. builds `_build/push/` and packs it into the ext2 image
    **`_build/share.img`** (`mkshare.sh`): `/mc`, `/tcc_test`, `/tcc_test.c`,
    `/tcc/{bin/tcc,include,lib}`, the sources from `tests/examples/*.c`,
+   `/gcc_hello` (built on the host by `gcc-toaru.sh`, when gcc is present),
    `/toaruos-src`, `/nuklear.h`, `/compile_examples.sh`, `/README.txt`,
 7. boots a **headless verification VM** and checks that `/share/tcc_test`
    runs, that tcc inside ToaruOS compiles and runs `/share/tcc_hello.c` and
-   every example, and that mini-commander draws its panels (with the current
+   every example, that `/share/gcc_hello` from the host gcc runs, and that
+   mini-commander draws its panels (with the current
    item highlighted), runs its command line on Enter, opens the viewer (F3)
    and editor (F4) and quits with F10 or a mouse click,
 8. starts the **visible ToaruOS** in a QEMU window and mounts the shared disk at
@@ -92,6 +94,50 @@ mini-commander:
 Quit with **F10** (same as Midnight Commander); the usual mouse and keyboard
 bindings apply (`Tab` switches panels, `F3` viewer, `F4` editor, …).
 
+## Building a program with the host gcc
+
+TinyCC is not the only option: the x86_64 SysV ABI is the same as on Linux, so
+a program for ToaruOS can be compiled by the **host gcc**. What differs is the
+C library, the startup code and the ELF layout — and all three are in the
+sysroot that `mktcc.sh` builds (`_build/tcc-toaru/lib`).
+
+```sh
+./gcc-toaru.sh -o user/hello tests/gcc/hello.c   # gcc + GNU ld + toaru-elfpad.py
+./tests/run-toaru.sh                             # packs user/ into /share
+# inside the guest:
+/share/hello
+```
+
+The same steps by hand:
+
+```sh
+gcc -ffreestanding -nostdinc -I_build/tcc-toaru/lib/include \
+    -fno-pie -fno-pic -fno-stack-protector -mno-red-zone -O2 -c hello.c -o hello.o
+ld -m elf_x86_64 -static -Ttext-segment=0x3F000000 -o hello \
+    _build/tcc-toaru/lib/crt0.o _build/tcc-toaru/lib/crti.o hello.o \
+    _build/tcc-toaru/lib/crtn.o -L_build/tcc-toaru/lib -lc
+./toaru-elfpad.py hello                      # page-align the PT_LOAD segments
+```
+
+Notes:
+
+- `-fno-pie` is required — the kernel's loader accepts only `ET_EXEC`
+  (`kernel/misc/elf64.c`).
+- `-nostdinc -I…/include` keeps glibc out; the ToaruOS headers come from the ISO.
+- `-fno-stack-protector` — ToaruOS libc has no `__stack_chk_fail`. The red zone
+  is not a problem: the kernel subtracts 128 bytes before a signal frame.
+- Use **GNU ld**, not `ld.lld`: lld puts the ELF headers in a separate `PT_LOAD`
+  at `0x200000` and the result crashes in the guest. `-Ttext-segment` makes GNU
+  ld produce the layout tcc uses (`--image-base` does not help either — lld
+  then emits segments that `toaru-elfpad.py` cannot align).
+- `toaru-elfpad.py` is still needed — the last `PT_LOAD` usually ends a few
+  bytes before a page boundary and the kernel maps a segment page by page from
+  `p_vaddr`.
+
+The control VM checks this route as well: `tests/run-toaru.sh` builds
+`tests/gcc/hello.c` with the host gcc into `/share/gcc_hello` and runs it.
+TinyCC remains the compiler that runs *inside* ToaruOS.
+
 ## Controlling the VM
 
 ```bash
@@ -124,7 +170,9 @@ The same variables can be passed to `toaru-vm.sh start`.
 tiny/
 ├─ tests/run-toaru.sh      # one-click: download, build, run
 ├─ tests/examples/*.c      # sample programs (copied to /share)
+├─ tests/gcc/hello.c       # program built by the host gcc (into /share)
 ├─ user/                   # YOUR files — copied into the root of /share
+├─ gcc-toaru.sh            # builds a program for ToaruOS with the HOST gcc
 ├─ mc-toaru/
 │   ├─ build.sh            # mc | probe | stage | clean (cross tcc)
 │   ├─ patches/mc-toaru.patch   # the single carrier of the mini-commander port
@@ -158,8 +206,9 @@ underscore are treated as disposable, which is why user data belongs in
 ## Requirements
 
 `bash`, `curl`, `git`, `patch`, `qemu-system-x86_64`, `python3`, `7z` (p7zip;
-unpacks the ISO when building the sysroot), host `gcc` (for the cross tcc) and
-`e2fsprogs` (`mke2fs`, `debugfs`). No `sudo` is needed — `share.img` is a plain
+unpacks the ISO when building the sysroot), host `gcc` and GNU `ld`
+(binutils — used to build the cross tcc and `gcc-toaru.sh`) and `e2fsprogs`
+(`mke2fs`, `debugfs`). No `sudo` is needed — `share.img` is a plain
 file and the guest mounts it as an IDE disk.
 
 Fedora: `dnf install qemu-system-x86 p7zip gcc e2fsprogs python3 curl git patch`
