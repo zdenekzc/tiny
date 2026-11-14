@@ -57,7 +57,7 @@ IMPORT_DIR="${REPO_ROOT}/_import"
 IMPORT_DOWNLOAD="${IMPORT_DIR}/download"
 BUILD_DOWNLOAD="${BUILD_DIR}/download"
 DOWNLOAD="${IMPORT_DOWNLOAD}"
-ISO="${DOWNLOAD}/toaruos-2.3.2.iso"
+ISO="${DOWNLOAD}/image.iso"
 TOARU_SRC="${DOWNLOAD}/toaruos-src"
 TCC="${BUILD_DIR}/tcc-toaru/bin/x86_64-toaru-tcc"
 TCC_GUEST="${BUILD_DIR}/tcc-toaru/tcc-guest"
@@ -111,7 +111,7 @@ mkdir -p "${DOWNLOAD}"
 if [[ ! -f "${ISO}" ]]; then
     echo "== downloading ToaruOS 2.3.2 ISO ..."
     curl -L --fail -o "${ISO}.part" \
-        "https://github.com/klange/toaruos/releases/download/v2.3.2/toaruos-2.3.2.iso"
+        "https://github.com/klange/toaruos/releases/download/v2.3.2/image.iso"
     mv "${ISO}.part" "${ISO}"
 # Cache ISO in build dir
 mkdir -p "${BUILD_DIR}/download"
