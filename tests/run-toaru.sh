@@ -452,11 +452,10 @@ demo() {
     if ! grep -aq 'Quit' <<< "$text"; then
         echo "  *** mini-commander did not draw (the Quit hint is missing)"; rc=1
     fi
-    # The current item is drawn black on bright blue (SGR 30;104) — the whole
-    # UI shares one blue background and the cursor row gets a brighter shade
-    # of the same blue.  If wattron() does not store the color pair, every row
+    # The current item keeps the original Tomas-M colors: black on cyan
+    # (SGR 30;46).  If wattron() does not store the color pair, every row
     # keeps the plain panel background.
-    if ! grep -aqF $'\033[0;30;104m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
+    if ! grep -aqF $'\033[0;30;46m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
         echo "  *** the current panel item is not highlighted"; rc=1
     fi
 
