@@ -142,19 +142,22 @@ TinyCC remains the compiler that runs *inside* ToaruOS.
 
 `nuklear-ide/` is a small, self-contained IDE example built on Nuklear with a
 GLFW/OpenGL 2.1 backend. It runs on the host (not in ToaruOS) and is meant as a
-readable starting point: file tree, tabs, editor, asynchronous compile/run and
-an output pane.
+readable starting point: file tree, tabs, C/C++ syntax highlighting,
+asynchronous TinyCC compile/run, clickable compiler errors, a dark/light theme
+and an output pane.
 
 ```sh
 cd nuklear-ide
 make
-make run            # opens demo/hello.c; F5 compiles and runs it
+make run            # builds/uses TinyCC, opens demo/hello.c; F5 compiles and runs
 ```
 
 Requires GLFW 3 development headers and OpenGL (`glfw-devel` +
-`mesa-libGL-devel` on Fedora). See `nuklear-ide/README.md` for shortcuts,
-architecture and porting notes. The ToaruOS part of this repository is
-independent of it.
+`mesa-libGL-devel` on Fedora) and a host TinyCC. `make tcc` uses `tcc` from
+`PATH` or builds one from `_build/download/tinycc`; `TCC=/path/to/tcc`
+overrides it. TinyCC is C-only, so C++ files use `CXX` for the actual build.
+See `nuklear-ide/README.md` for shortcuts, architecture and porting notes. The
+ToaruOS part of this repository is independent of it.
 
 ## Controlling the VM
 

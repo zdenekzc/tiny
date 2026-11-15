@@ -2,9 +2,10 @@
  * nuklear-ide — a deliberately small IDE built on Nuklear.
  *
  * Linux-first backend: GLFW + OpenGL 2.1.  Only Nuklear draws the UI; the
- * editor itself is Nuklear's multiline text edit widget.  Compilation and
- * running use the host C/C++ compiler and are asynchronous, so the UI keeps
- * repainting while a program is running.
+ * editor state is Nuklear's multiline text edit widget, with a small
+ * syntax-highlighting overlay for C/C++.  Compilation uses TinyCC (C++ falls
+ * back to CXX because TCC has no C++ frontend) and runs asynchronously, so the
+ * UI keeps repainting while a program is running.
  *
  * Build:   make
  * Run:     ./nuklear-ide [project-dir | file]
@@ -61,13 +62,44 @@
 #define RUN_TIMEOUT      15.0
 #define KILL_GRACE       1.0
 
-#define COLOR_TEXT       nk_rgb(216, 222, 233)
-#define COLOR_MUTED      nk_rgb(125, 137, 155)
-#define COLOR_ACCENT     nk_rgb(122, 182, 255)
-#define COLOR_OK         nk_rgb(126, 211, 160)
-#define COLOR_ERROR      nk_rgb(255, 121, 121)
-#define COLOR_EDIT_BG    nk_rgb(15, 18, 22)
-#define COLOR_PANEL_BG   nk_rgb(23, 27, 33)
+struct theme {
+    struct nk_color text;
+    struct nk_color muted;
+    struct nk_color accent;
+    struct nk_color ok;
+    struct nk_color error;
+    struct nk_color edit_bg;
+    struct nk_color panel_bg;
+    struct nk_color window_bg;
+    struct nk_color header;
+    struct nk_color border;
+    struct nk_color button;
+    struct nk_color button_hover;
+    struct nk_color button_active;
+    struct nk_color select;
+    struct nk_color select_active;
+    struct nk_color edit_cursor;
+    struct nk_color scrollbar;
+    struct nk_color scrollbar_cursor;
+    struct nk_color scrollbar_hover;
+    struct nk_color scrollbar_active;
+    struct nk_color syntax_keyword;
+    struct nk_color syntax_type;
+    struct nk_color syntax_string;
+    struct nk_color syntax_comment;
+    struct nk_color syntax_number;
+    struct nk_color syntax_preproc;
+};
+
+static struct theme g_theme;
+
+#define COLOR_TEXT (g_theme.text)
+#define COLOR_MUTED (g_theme.muted)
+#define COLOR_ACCENT (g_theme.accent)
+#define COLOR_OK (g_theme.ok)
+#define COLOR_ERROR (g_theme.error)
+#define COLOR_EDIT_BG (g_theme.edit_bg)
+#define COLOR_PANEL_BG (g_theme.panel_bg)
 
 enum build_state {
     BUILD_IDLE = 0,
@@ -84,6 +116,10 @@ struct tab {
     struct nk_text_edit edit;
     char *saved;
     size_t saved_len;
+    size_t *line_offsets;
+    unsigned char *line_block_state;
+    int line_count;
+    int line_capacity;
 };
 
 struct file_item {
@@ -132,6 +168,11 @@ struct app {
     bool show_quit_confirm;
     bool show_close_confirm;
     int close_tab;
+
+    bool light_mode;
+    bool theme_dirty;
+    int jump_line;
+    bool jump_pending;
 
     bool should_quit;
 };
@@ -382,6 +423,108 @@ static const char *tab_text(const struct tab *tab, int *length)
     return text;
 }
 
+static bool tab_reserve_lines(struct tab *tab, int needed)
+{
+    if (needed <= tab->line_capacity)
+        return true;
+
+    int capacity = tab->line_capacity ? tab->line_capacity : 128;
+    while (capacity < needed) {
+        if (capacity > (INT_MAX / 2))
+            return false;
+        capacity *= 2;
+    }
+
+    size_t *offsets = malloc((size_t)capacity * sizeof(*offsets));
+    unsigned char *blocks = malloc((size_t)capacity);
+    if (!offsets || !blocks) {
+        free(offsets);
+        free(blocks);
+        return false;
+    }
+    if (tab->line_count > 0) {
+        memcpy(offsets, tab->line_offsets,
+               (size_t)tab->line_count * sizeof(*offsets));
+        memcpy(blocks, tab->line_block_state, (size_t)tab->line_count);
+    }
+    free(tab->line_offsets);
+    free(tab->line_block_state);
+    tab->line_offsets = offsets;
+    tab->line_block_state = blocks;
+    tab->line_capacity = capacity;
+    return true;
+}
+
+/* Build byte offsets for every line and the block-comment state at line
+ * start.  Runs once per frame for the active tab; the files are small enough
+ * that this keeps the implementation simple and correct after any edit. */
+static void tab_rebuild_lines(struct tab *tab)
+{
+    int length = 0;
+    const char *text = tab_text(tab, &length);
+
+    int count = 1;
+    for (int i = 0; i < length; ++i) {
+        if (text[i] == '\n')
+            count++;
+    }
+    if (!tab_reserve_lines(tab, count)) {
+        tab->line_count = 0;
+        return;
+    }
+
+    int line = 0;
+    tab->line_offsets[line++] = 0;
+    for (int i = 0; i < length; ++i) {
+        if (text[i] == '\n' && line < count)
+            tab->line_offsets[line++] = (size_t)i + 1;
+    }
+    tab->line_count = count;
+
+    bool block_comment = false;
+    bool in_string = false;
+    char quote = 0;
+    bool escaped = false;
+    for (int current = 0; current < count; ++current) {
+        tab->line_block_state[current] = block_comment ? 1 : 0;
+        size_t start = tab->line_offsets[current];
+        size_t end = current + 1 < count ?
+                     tab->line_offsets[current + 1] - 1 : (size_t)length;
+        if (end > (size_t)length)
+            end = (size_t)length;
+
+        for (size_t i = start; i < end; ++i) {
+            char c = text[i];
+            if (block_comment) {
+                if (c == '*' && i + 1 < end && text[i + 1] == '/') {
+                    block_comment = false;
+                    ++i;
+                }
+            } else if (in_string) {
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (c == quote) {
+                    in_string = false;
+                }
+            } else if (c == '/' && i + 1 < end && text[i + 1] == '/') {
+                break;
+            } else if (c == '/' && i + 1 < end && text[i + 1] == '*') {
+                block_comment = true;
+                ++i;
+            } else if (c == '"' || c == '\'') {
+                in_string = true;
+                quote = c;
+                escaped = false;
+            }
+        }
+        in_string = false;
+        quote = 0;
+        escaped = false;
+    }
+}
+
 static bool tab_dirty_now(const struct tab *tab)
 {
     int len = 0;
@@ -435,6 +578,8 @@ static void tab_free(struct tab *tab)
         return;
     nk_textedit_free(&tab->edit);
     free(tab->saved);
+    free(tab->line_offsets);
+    free(tab->line_block_state);
     memset(tab, 0, sizeof(*tab));
 }
 
@@ -479,6 +624,111 @@ static bool open_file(struct app *app, const char *path)
     }
     free(data);
     return true;
+}
+
+static bool parse_compiler_location(const char *line, int length,
+                                    char *path, size_t path_size,
+                                    int *line_number)
+{
+    int i = 0;
+    while (i < length) {
+        const char *colon = memchr(line + i, ':', (size_t)(length - i));
+        if (!colon)
+            break;
+        int colon_index = (int)(colon - line);
+        int j = colon_index + 1;
+        int number = 0;
+        int digits = 0;
+        while (j < length && isdigit((unsigned char)line[j])) {
+            number = number * 10 + (line[j] - '0');
+            digits++;
+            j++;
+        }
+        if (digits > 0 && j < length && line[j] == ':') {
+            const char *start = line;
+            int path_length = colon_index;
+            static const char prefix[] = "In file included from ";
+            int prefix_length = (int)sizeof(prefix) - 1;
+            if (path_length > prefix_length &&
+                strncmp(line, prefix, (size_t)prefix_length) == 0) {
+                start += prefix_length;
+                path_length -= prefix_length;
+            } else {
+                const char *from = NULL;
+                for (int k = 0; k + 5 < colon_index; ++k) {
+                    if (strncmp(line + k, "from ", 5) == 0) {
+                        from = line + k + 5;
+                        break;
+                    }
+                }
+                if (from) {
+                    path_length = (int)(line + colon_index - from);
+                    start = from;
+                }
+            }
+            while (path_length > 0 && (start[0] == ' ' || start[0] == '\t')) {
+                start++;
+                path_length--;
+            }
+            while (path_length > 0 &&
+                   (start[path_length - 1] == ' ' ||
+                    start[path_length - 1] == '\t'))
+                path_length--;
+            if (path_length > 0 &&
+                (size_t)path_length < path_size) {
+                memcpy(path, start, (size_t)path_length);
+                path[path_length] = '\0';
+                *line_number = number;
+                return true;
+            }
+        }
+        i = colon_index + 1;
+    }
+    return false;
+}
+
+static bool line_contains(const char *line, const char *needle)
+{
+    return line && strstr(line, needle) != NULL;
+}
+
+static bool resolve_diagnostic_path(struct app *app, const char *path,
+                                    char *out, size_t out_size)
+{
+    if (is_absolute(path))
+        return realpath(path, out) != NULL;
+    if (make_existing_absolute(out, out_size, app->project, path))
+        return true;
+
+    if (app->active >= 0 && app->active < app->tab_count &&
+        !app->tabs[app->active].untitled) {
+        char dir[PATH_MAX];
+        snprintf(dir, sizeof(dir), "%s", app->tabs[app->active].path);
+        char *slash = strrchr(dir, '/');
+        if (slash) {
+            *slash = '\0';
+            if (make_existing_absolute(out, out_size, dir, path))
+                return true;
+        }
+    }
+    return false;
+}
+
+static void jump_to_diagnostic(struct app *app, struct nk_context *ctx,
+                               const char *path, int line)
+{
+    char absolute[PATH_MAX];
+    if (!resolve_diagnostic_path(app, path, absolute, sizeof(absolute))) {
+        set_status(app, "Cannot find %s", path);
+        return;
+    }
+    if (!open_file(app, absolute))
+        return;
+
+    app->jump_line = line;
+    app->jump_pending = true;
+    nk_edit_focus(ctx, NK_EDIT_ALWAYS_INSERT_MODE);
+    set_status(app, "Jumping to %s:%d", base_name(absolute), line);
 }
 
 static void new_tab(struct app *app)
@@ -698,6 +948,133 @@ static bool start_run(struct app *app)
     return true;
 }
 
+static bool is_executable(const char *path)
+{
+    return path && access(path, X_OK) == 0;
+}
+
+static bool search_path_for(const char *name, char *out, size_t out_size)
+{
+    const char *path = getenv("PATH");
+    if (!path)
+        return false;
+    while (*path) {
+        const char *colon = strchr(path, ':');
+        size_t length = colon ? (size_t)(colon - path) : strlen(path);
+        char dir[PATH_MAX];
+        if (length == 0)
+            snprintf(dir, sizeof(dir), ".");
+        else if (length >= sizeof(dir))
+            dir[0] = '\0';
+        else
+            snprintf(dir, sizeof(dir), "%.*s", (int)length, path);
+        if (dir[0]) {
+            char candidate[PATH_MAX];
+            if (path_join(candidate, sizeof(candidate), dir, name) &&
+                is_executable(candidate)) {
+                char resolved[PATH_MAX];
+                if (realpath(candidate, resolved))
+                    return snprintf(out, out_size, "%s", resolved) < (int)out_size;
+                return snprintf(out, out_size, "%s", candidate) < (int)out_size;
+            }
+        }
+        if (!colon)
+            break;
+        path = colon + 1;
+    }
+    return false;
+}
+
+/* Locate a host TinyCC.  The repository's setup script leaves a build in
+ * _build/download/tinycc; a distro package can also be used via PATH or TCC. */
+static bool find_tcc(char *out, size_t out_size)
+{
+    const char *env = getenv("IDE_TCC");
+    if (!env || !env[0])
+        env = getenv("TCC");
+    if (env && env[0]) {
+        if (strchr(env, '/')) {
+            char resolved[PATH_MAX];
+            if (realpath(env, resolved) && is_executable(resolved))
+                return snprintf(out, out_size, "%s", resolved) < (int)out_size;
+        } else if (search_path_for(env, out, out_size)) {
+            return true;
+        }
+    }
+
+    char self[PATH_MAX];
+    ssize_t self_len = readlink("/proc/self/exe", self, sizeof(self) - 1);
+    if (self_len > 0) {
+        self[self_len] = '\0';
+        char *slash = strrchr(self, '/');
+        if (slash) {
+            *slash = '\0';
+            const char *relative[] = {
+                "../_build/download/tinycc/tcc",
+                "../_build/host-tcc/tcc",
+                "tcc",
+                NULL
+            };
+            for (int i = 0; relative[i]; ++i) {
+                char candidate[PATH_MAX];
+                if (path_join(candidate, sizeof(candidate), self, relative[i]) &&
+                    is_executable(candidate)) {
+                    char resolved[PATH_MAX];
+                    if (realpath(candidate, resolved))
+                        return snprintf(out, out_size, "%s", resolved) < (int)out_size;
+                }
+            }
+        }
+    }
+
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof(cwd))) {
+        const char *relative[] = {
+            "_build/download/tinycc/tcc",
+            "../_build/download/tinycc/tcc",
+            NULL
+        };
+        for (int i = 0; relative[i]; ++i) {
+            char candidate[PATH_MAX];
+            if (path_join(candidate, sizeof(candidate), cwd, relative[i]) &&
+                is_executable(candidate)) {
+                char resolved[PATH_MAX];
+                if (realpath(candidate, resolved))
+                    return snprintf(out, out_size, "%s", resolved) < (int)out_size;
+            }
+        }
+    }
+
+    return search_path_for("tcc", out, out_size);
+}
+
+static bool tcc_needs_B(const char *compiler, char *out, size_t out_size)
+{
+    const char *configured = getenv("TCC_B");
+    if (configured && configured[0]) {
+        snprintf(out, out_size, "-B%s", configured);
+        return true;
+    }
+
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s", compiler);
+    char *slash = strrchr(path, '/');
+    if (!slash)
+        return false;
+    *slash = '\0';
+    char include[PATH_MAX];
+    char runtime[PATH_MAX];
+    if (!path_join(include, sizeof(include), path, "include/stddef.h") ||
+        !path_join(runtime, sizeof(runtime), path, "libtcc1.a"))
+        return false;
+    if (access(include, R_OK) == 0 && access(runtime, R_OK) == 0 &&
+        strlen(path) + 3 <= out_size) {
+        snprintf(out, out_size, "-B%s", path);
+        return true;
+    }
+    return false;
+}
+
 static bool start_build(struct app *app, bool then_run)
 {
     if (app->build_state != BUILD_IDLE) {
@@ -720,9 +1097,32 @@ static bool start_build(struct app *app, bool then_run)
     }
 
     bool cpp = is_cpp_file(tab->path);
-    const char *compiler = getenv(cpp ? "CXX" : "CC");
-    if (!compiler || !compiler[0])
-        compiler = cpp ? "c++" : "cc";
+    char compiler[PATH_MAX];
+    char tcc_B[PATH_MAX];
+    bool has_tcc_B = false;
+
+    if (cpp) {
+        /* TinyCC has no C++ frontend; keep the extension highlighting, but
+         * compile C++ with CXX (default: c++). */
+        const char *cxx = getenv("CXX");
+        snprintf(compiler, sizeof(compiler), "%s",
+                 cxx && cxx[0] ? cxx : "c++");
+    } else {
+        if (!find_tcc(compiler, sizeof(compiler))) {
+            output_clear(app);
+            app->show_output = true;
+            app->build_failed = true;
+            output_printf(app,
+                "TinyCC (tcc) not found.\n\n"
+                "Install tcc, or point the IDE at it:\n"
+                "  TCC=/path/to/tcc ./nuklear-ide ...\n\n"
+                "In this repository you can build it with:\n"
+                "  make -C nuklear-ide tcc\n");
+            set_status(app, "TinyCC not found — set TCC or run make tcc");
+            return false;
+        }
+        has_tcc_B = tcc_needs_B(compiler, tcc_B, sizeof(tcc_B));
+    }
 
     char stem[160];
     snprintf(stem, sizeof(stem), "%s", base_name(tab->path));
@@ -739,7 +1139,9 @@ static bool start_build(struct app *app, bool then_run)
 
     char *argv[16];
     int argc = 0;
-    argv[argc++] = (char *)compiler;
+    argv[argc++] = compiler;
+    if (!cpp && has_tcc_B)
+        argv[argc++] = tcc_B;
     argv[argc++] = cpp ? "-std=c++17" : "-std=c11";
     argv[argc++] = "-Wall";
     argv[argc++] = "-Wextra";
@@ -754,7 +1156,10 @@ static bool start_build(struct app *app, bool then_run)
     output_printf(app, "$ %s", compiler);
     for (int i = 1; argv[i]; ++i)
         output_printf(app, " %s", argv[i]);
-    output_printf(app, "\n\n");
+    output_printf(app, "\n");
+    if (cpp)
+        output_printf(app, "# TinyCC has no C++ frontend; using CXX (%s)\n", compiler);
+    output_printf(app, "\n");
 
     app->build_failed = false;
     app->run_after_build = then_run;
@@ -990,42 +1395,107 @@ static struct dir_cache *load_dir(const char *path)
 /* UI                                                                        */
 /* ------------------------------------------------------------------------- */
 
-static void style_apply(struct nk_context *ctx)
+static void theme_set(bool light)
 {
+    if (light) {
+        g_theme = (struct theme){
+            .text              = nk_rgb(36, 41, 46),
+            .muted             = nk_rgb(106, 115, 125),
+            .accent            = nk_rgb(9, 105, 218),
+            .ok                = nk_rgb(26, 127, 55),
+            .error             = nk_rgb(207, 34, 46),
+            .edit_bg           = nk_rgb(255, 255, 255),
+            .panel_bg          = nk_rgb(246, 248, 250),
+            .window_bg         = nk_rgb(250, 251, 252),
+            .header            = nk_rgb(240, 243, 246),
+            .border            = nk_rgb(208, 215, 222),
+            .button            = nk_rgb(240, 243, 246),
+            .button_hover      = nk_rgb(230, 235, 240),
+            .button_active     = nk_rgb(9, 105, 218),
+            .select            = nk_rgb(221, 238, 255),
+            .select_active     = nk_rgb(187, 222, 251),
+            .edit_cursor       = nk_rgb(9, 105, 218),
+            .scrollbar         = nk_rgb(240, 243, 246),
+            .scrollbar_cursor  = nk_rgb(170, 180, 190),
+            .scrollbar_hover   = nk_rgb(140, 152, 164),
+            .scrollbar_active  = nk_rgb(100, 115, 130),
+            .syntax_keyword    = nk_rgb(130, 80, 223),
+            .syntax_type       = nk_rgb(5, 80, 174),
+            .syntax_string     = nk_rgb(22, 130, 93),
+            .syntax_comment    = nk_rgb(106, 115, 125),
+            .syntax_number     = nk_rgb(185, 110, 20),
+            .syntax_preproc    = nk_rgb(130, 80, 223),
+        };
+    } else {
+        g_theme = (struct theme){
+            .text              = nk_rgb(216, 222, 233),
+            .muted             = nk_rgb(125, 137, 155),
+            .accent            = nk_rgb(122, 182, 255),
+            .ok                = nk_rgb(126, 211, 160),
+            .error             = nk_rgb(255, 121, 121),
+            .edit_bg           = nk_rgb(15, 18, 22),
+            .panel_bg          = nk_rgb(23, 27, 33),
+            .window_bg         = nk_rgb(20, 23, 28),
+            .header            = nk_rgb(32, 38, 47),
+            .border            = nk_rgb(48, 56, 70),
+            .button            = nk_rgb(37, 43, 53),
+            .button_hover      = nk_rgb(50, 59, 73),
+            .button_active     = nk_rgb(59, 130, 246),
+            .select            = nk_rgb(39, 47, 60),
+            .select_active     = nk_rgb(45, 96, 160),
+            .edit_cursor       = nk_rgb(148, 210, 255),
+            .scrollbar         = nk_rgb(23, 27, 33),
+            .scrollbar_cursor  = nk_rgb(58, 69, 85),
+            .scrollbar_hover   = nk_rgb(78, 92, 112),
+            .scrollbar_active  = nk_rgb(96, 112, 136),
+            .syntax_keyword    = nk_rgb(198, 120, 221),
+            .syntax_type       = nk_rgb(86, 182, 194),
+            .syntax_string     = nk_rgb(163, 190, 140),
+            .syntax_comment    = nk_rgb(106, 115, 125),
+            .syntax_number     = nk_rgb(209, 154, 102),
+            .syntax_preproc    = nk_rgb(198, 120, 221),
+        };
+    }
+}
+
+static void style_apply(struct nk_context *ctx, bool light)
+{
+    theme_set(light);
+
     struct nk_color table[NK_COLOR_COUNT];
     memset(table, 0, sizeof(table));
-    table[NK_COLOR_TEXT]                    = COLOR_TEXT;
-    table[NK_COLOR_WINDOW]                  = nk_rgb(20, 23, 28);
-    table[NK_COLOR_HEADER]                  = nk_rgb(32, 38, 47);
-    table[NK_COLOR_BORDER]                  = nk_rgb(48, 56, 70);
-    table[NK_COLOR_BUTTON]                  = nk_rgb(37, 43, 53);
-    table[NK_COLOR_BUTTON_HOVER]            = nk_rgb(50, 59, 73);
-    table[NK_COLOR_BUTTON_ACTIVE]           = nk_rgb(59, 130, 246);
-    table[NK_COLOR_TOGGLE]                  = nk_rgb(37, 43, 53);
-    table[NK_COLOR_TOGGLE_HOVER]            = nk_rgb(50, 59, 73);
-    table[NK_COLOR_TOGGLE_CURSOR]           = nk_rgb(59, 130, 246);
-    table[NK_COLOR_SELECT]                  = nk_rgb(39, 47, 60);
-    table[NK_COLOR_SELECT_ACTIVE]           = nk_rgb(45, 96, 160);
-    table[NK_COLOR_SLIDER]                  = nk_rgb(37, 43, 53);
-    table[NK_COLOR_SLIDER_CURSOR]           = nk_rgb(59, 130, 246);
-    table[NK_COLOR_SLIDER_CURSOR_HOVER]     = nk_rgb(96, 165, 250);
-    table[NK_COLOR_SLIDER_CURSOR_ACTIVE]    = nk_rgb(147, 197, 253);
-    table[NK_COLOR_PROPERTY]                = nk_rgb(37, 43, 53);
-    table[NK_COLOR_EDIT]                    = COLOR_EDIT_BG;
-    table[NK_COLOR_EDIT_CURSOR]             = nk_rgb(148, 210, 255);
-    table[NK_COLOR_COMBO]                   = nk_rgb(37, 43, 53);
-    table[NK_COLOR_CHART]                   = nk_rgb(37, 43, 53);
-    table[NK_COLOR_CHART_COLOR]             = nk_rgb(59, 130, 246);
-    table[NK_COLOR_CHART_COLOR_HIGHLIGHT]   = nk_rgb(147, 197, 253);
-    table[NK_COLOR_SCROLLBAR]               = nk_rgb(23, 27, 33);
-    table[NK_COLOR_SCROLLBAR_CURSOR]        = nk_rgb(58, 69, 85);
-    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER]  = nk_rgb(78, 92, 112);
-    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = nk_rgb(96, 112, 136);
-    table[NK_COLOR_TAB_HEADER]              = nk_rgb(32, 38, 47);
-    table[NK_COLOR_KNOB]                    = nk_rgb(37, 43, 53);
-    table[NK_COLOR_KNOB_CURSOR]             = nk_rgb(59, 130, 246);
-    table[NK_COLOR_KNOB_CURSOR_HOVER]       = nk_rgb(96, 165, 250);
-    table[NK_COLOR_KNOB_CURSOR_ACTIVE]      = nk_rgb(147, 197, 253);
+    table[NK_COLOR_TEXT]                    = g_theme.text;
+    table[NK_COLOR_WINDOW]                  = g_theme.window_bg;
+    table[NK_COLOR_HEADER]                  = g_theme.header;
+    table[NK_COLOR_BORDER]                  = g_theme.border;
+    table[NK_COLOR_BUTTON]                  = g_theme.button;
+    table[NK_COLOR_BUTTON_HOVER]            = g_theme.button_hover;
+    table[NK_COLOR_BUTTON_ACTIVE]           = g_theme.button_active;
+    table[NK_COLOR_TOGGLE]                  = g_theme.button;
+    table[NK_COLOR_TOGGLE_HOVER]            = g_theme.button_hover;
+    table[NK_COLOR_TOGGLE_CURSOR]           = g_theme.button_active;
+    table[NK_COLOR_SELECT]                  = g_theme.select;
+    table[NK_COLOR_SELECT_ACTIVE]           = g_theme.select_active;
+    table[NK_COLOR_SLIDER]                  = g_theme.button;
+    table[NK_COLOR_SLIDER_CURSOR]           = g_theme.button_active;
+    table[NK_COLOR_SLIDER_CURSOR_HOVER]     = g_theme.accent;
+    table[NK_COLOR_SLIDER_CURSOR_ACTIVE]    = g_theme.accent;
+    table[NK_COLOR_PROPERTY]                = g_theme.button;
+    table[NK_COLOR_EDIT]                    = g_theme.edit_bg;
+    table[NK_COLOR_EDIT_CURSOR]             = g_theme.edit_cursor;
+    table[NK_COLOR_COMBO]                   = g_theme.button;
+    table[NK_COLOR_CHART]                   = g_theme.button;
+    table[NK_COLOR_CHART_COLOR]             = g_theme.accent;
+    table[NK_COLOR_CHART_COLOR_HIGHLIGHT]   = g_theme.accent;
+    table[NK_COLOR_SCROLLBAR]               = g_theme.scrollbar;
+    table[NK_COLOR_SCROLLBAR_CURSOR]        = g_theme.scrollbar_cursor;
+    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER]  = g_theme.scrollbar_hover;
+    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = g_theme.scrollbar_active;
+    table[NK_COLOR_TAB_HEADER]              = g_theme.header;
+    table[NK_COLOR_KNOB]                    = g_theme.button;
+    table[NK_COLOR_KNOB_CURSOR]             = g_theme.button_active;
+    table[NK_COLOR_KNOB_CURSOR_HOVER]       = g_theme.accent;
+    table[NK_COLOR_KNOB_CURSOR_ACTIVE]      = g_theme.accent;
     nk_style_from_table(ctx, table);
 
     ctx->style.window.padding = nk_vec2(8, 8);
@@ -1033,7 +1503,7 @@ static void style_apply(struct nk_context *ctx)
     ctx->style.window.scrollbar_size = nk_vec2(10, 10);
     ctx->style.window.group_padding = nk_vec2(6, 6);
     ctx->style.window.border = 1;
-    ctx->style.window.border_color = nk_rgb(24, 28, 34);
+    ctx->style.window.border_color = g_theme.window_bg;
     ctx->style.edit.padding = nk_vec2(8, 6);
     ctx->style.edit.row_padding = 2;
     ctx->style.edit.border = 1;
@@ -1044,7 +1514,6 @@ static void style_apply(struct nk_context *ctx)
     ctx->style.button.border = 1;
     ctx->style.contextual_button.padding = nk_vec2(6, 4);
 }
-
 static void menu_bar(struct app *app, struct nk_context *ctx)
 {
     nk_menubar_begin(ctx);
@@ -1106,12 +1575,18 @@ static void menu_bar(struct app *app, struct nk_context *ctx)
     }
 
     nk_layout_row_push(ctx, 52);
-    if (nk_menu_begin_label(ctx, "View", NK_TEXT_LEFT, nk_vec2(210, 90))) {
+    if (nk_menu_begin_label(ctx, "View", NK_TEXT_LEFT, nk_vec2(240, 115))) {
         nk_layout_row_dynamic(ctx, 22, 1);
         if (nk_menu_item_label(ctx, app->show_output ? "Hide output          F9" :
                                                      "Show output          F9",
                                NK_TEXT_LEFT))
             app->show_output = !app->show_output;
+        if (nk_menu_item_label(ctx, app->light_mode ? "Light mode           ON" :
+                                                     "Light mode           OFF",
+                               NK_TEXT_LEFT)) {
+            app->light_mode = !app->light_mode;
+            app->theme_dirty = true;
+        }
         if (nk_menu_item_label(ctx, "Refresh file tree", NK_TEXT_LEFT))
             tree_cache_clear();
         nk_menu_end(ctx);
@@ -1131,7 +1606,7 @@ static void menu_bar(struct app *app, struct nk_context *ctx)
 static void toolbar(struct app *app, struct nk_context *ctx, float width)
 {
     bool busy = app->build_state != BUILD_IDLE;
-    float used = 60 + 60 + 82 + 68 + 68 + 62 + 82;
+    float used = 60 + 60 + 100 + 68 + 68 + 62 + 120;
     float gap = ctx->style.window.spacing.x;
     float rest = width - used - gap * 7.0f;
     if (rest < 80)
@@ -1146,7 +1621,7 @@ static void toolbar(struct app *app, struct nk_context *ctx, float width)
     if (nk_button_label(ctx, "Save"))
         save_active(app);
 
-    nk_layout_row_push(ctx, 82);
+    nk_layout_row_push(ctx, 100);
     if (nk_button_label(ctx, "Save as…"))
         request_save_as(app);
 
@@ -1177,7 +1652,7 @@ static void toolbar(struct app *app, struct nk_context *ctx, float width)
         stop_child(app);
     }
 
-    nk_layout_row_push(ctx, 82);
+    nk_layout_row_push(ctx, 120);
     if (nk_button_label(ctx, app->show_output ? "Hide output" : "Output"))
         app->show_output = !app->show_output;
 
@@ -1292,6 +1767,456 @@ static void cursor_line_column(const struct tab *tab, int *line, int *column)
     }
 }
 
+static bool list_contains_word(const char *word, int length,
+                               const char *const *list)
+{
+    for (int i = 0; list[i]; ++i) {
+        if ((int)strlen(list[i]) == length &&
+            strncmp(list[i], word, (size_t)length) == 0)
+            return true;
+    }
+    return false;
+}
+
+enum syntax_kind {
+    SYNTAX_TEXT,
+    SYNTAX_KEYWORD,
+    SYNTAX_TYPE,
+    SYNTAX_STRING,
+    SYNTAX_COMMENT,
+    SYNTAX_NUMBER,
+    SYNTAX_PREPROC
+};
+
+static bool tab_syntax_supported(const struct tab *tab)
+{
+    const char *name = tab->path[0] ? tab->path : tab->title;
+    return has_extension(name, ".c") || has_extension(name, ".h") ||
+           has_extension(name, ".cc") || has_extension(name, ".cpp") ||
+           has_extension(name, ".cxx") || has_extension(name, ".hpp") ||
+           has_extension(name, ".hh");
+}
+
+static bool syntax_is_keyword(const char *word, int length, bool *is_type)
+{
+    static const char *const keywords[] = {
+        "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand",
+        "bitor", "break", "case", "catch", "class", "co_await",
+        "co_return", "co_yield", "compl", "concept", "const", "consteval",
+        "constexpr", "constinit", "const_cast", "continue", "decltype",
+        "default", "delete", "do", "dynamic_cast", "else", "enum",
+        "explicit", "export", "extern", "false", "for", "friend", "goto",
+        "if", "inline", "mutable", "namespace", "new", "noexcept", "not",
+        "not_eq", "nullptr", "operator", "or", "or_eq", "private",
+        "protected", "public", "register", "reinterpret_cast", "requires",
+        "restrict", "return", "sizeof", "static", "static_assert",
+        "static_cast", "struct", "switch", "template", "this",
+        "thread_local", "throw", "true", "try", "typedef", "typeid",
+        "typename", "union", "using", "virtual", "volatile", "while",
+        "xor", "xor_eq", "_Alignas", "_Alignof", "_Atomic", "_Generic",
+        "_Noreturn", "_Static_assert", "_Thread_local", NULL
+    };
+    static const char *const types[] = {
+        "bool", "char", "char8_t", "char16_t", "char32_t", "double",
+        "float", "int", "long", "short", "signed", "unsigned", "void",
+        "wchar_t", "size_t", "ssize_t", "ptrdiff_t", "uint8_t", "uint16_t",
+        "uint32_t", "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t",
+        NULL
+    };
+    if (list_contains_word(word, length, types)) {
+        *is_type = true;
+        return true;
+    }
+    *is_type = false;
+    return list_contains_word(word, length, keywords);
+}
+
+static struct nk_color syntax_color(enum syntax_kind kind)
+{
+    switch (kind) {
+    case SYNTAX_KEYWORD: return g_theme.syntax_keyword;
+    case SYNTAX_TYPE:    return g_theme.syntax_type;
+    case SYNTAX_STRING:  return g_theme.syntax_string;
+    case SYNTAX_COMMENT: return g_theme.syntax_comment;
+    case SYNTAX_NUMBER:  return g_theme.syntax_number;
+    case SYNTAX_PREPROC: return g_theme.syntax_preproc;
+    case SYNTAX_TEXT:
+    default:             return g_theme.text;
+    }
+}
+
+static float syntax_emit(struct nk_command_buffer *canvas,
+                         const struct nk_user_font *font, float x, float y,
+                         float row_height, const char *text, int length,
+                         struct nk_color color, struct nk_rect clip)
+{
+    if (length <= 0)
+        return x;
+    float width = font->width(font->userdata, font->height, text, length);
+    if (width <= 0.0f)
+        return x;
+    if (x + width >= clip.x && x <= clip.x + clip.w) {
+        struct nk_rect box = nk_rect(x, y, width + 1.0f, row_height);
+        nk_draw_text(canvas, box, text, length, font,
+                     nk_rgba(0, 0, 0, 0), color);
+    }
+    return x + width;
+}
+
+static bool syntax_ident_start(char c)
+{
+    return isalpha((unsigned char)c) || c == '_';
+}
+
+static bool syntax_ident_char(char c)
+{
+    return isalnum((unsigned char)c) || c == '_';
+}
+
+static float syntax_draw_line(struct nk_command_buffer *canvas,
+                              const struct nk_user_font *font,
+                              const struct tab *tab, const char *text,
+                              int line, float x, float y, float row_height,
+                              struct nk_rect clip)
+{
+    size_t start = tab->line_offsets[line];
+    size_t end = line + 1 < tab->line_count ?
+                 tab->line_offsets[line + 1] - 1 : (size_t)nk_str_len_char(
+                     &tab->edit.string);
+    int length = (int)(end - start);
+    if (length > 0 && text[start + (size_t)length - 1] == '\r')
+        length--;
+    if (length <= 0)
+        return x;
+
+    int last = 0;
+    int pos = 0;
+    bool block_comment = tab->line_block_state[line] != 0;
+
+    int first = 0;
+    while (first < length && (text[start + first] == ' ' ||
+                              text[start + first] == '\t'))
+        first++;
+    if (!block_comment && first < length && text[start + first] == '#') {
+        int j = first + 1;
+        while (j < length && syntax_ident_char(text[start + j]))
+            j++;
+        x = syntax_emit(canvas, font, x, y, row_height,
+                        text + start, first, g_theme.text, clip);
+        x = syntax_emit(canvas, font, x, y, row_height,
+                        text + start + first, j - first,
+                        g_theme.syntax_preproc, clip);
+        last = pos = j;
+    }
+
+    while (pos < length) {
+        char c = text[start + pos];
+        enum syntax_kind kind = SYNTAX_TEXT;
+        int next = pos;
+
+        if (block_comment) {
+            int close = -1;
+            for (int i = pos; i + 1 < length; ++i) {
+                if (text[start + i] == '*' && text[start + i + 1] == '/') {
+                    close = i + 2;
+                    break;
+                }
+            }
+            if (close < 0) {
+                next = length;
+            } else {
+                next = close;
+                block_comment = false;
+            }
+            kind = SYNTAX_COMMENT;
+        } else if (c == '/' && pos + 1 < length &&
+                   text[start + pos + 1] == '/') {
+            next = length;
+            kind = SYNTAX_COMMENT;
+        } else if (c == '/' && pos + 1 < length &&
+                   text[start + pos + 1] == '*') {
+            int close = -1;
+            for (int i = pos + 2; i + 1 < length; ++i) {
+                if (text[start + i] == '*' && text[start + i + 1] == '/') {
+                    close = i + 2;
+                    break;
+                }
+            }
+            if (close < 0) {
+                next = length;
+                block_comment = true;
+            } else {
+                next = close;
+            }
+            kind = SYNTAX_COMMENT;
+        } else if (c == '"' || c == '\'') {
+            char quote = c;
+            next = pos + 1;
+            bool escaped = false;
+            while (next < length) {
+                char q = text[start + next++];
+                if (escaped) {
+                    escaped = false;
+                } else if (q == '\\') {
+                    escaped = true;
+                } else if (q == quote) {
+                    break;
+                }
+            }
+            kind = SYNTAX_STRING;
+        } else if (isdigit((unsigned char)c) ||
+                   (c == '.' && pos + 1 < length &&
+                    isdigit((unsigned char)text[start + pos + 1]))) {
+            next = pos + 1;
+            while (next < length) {
+                char n = text[start + next];
+                if (!(isalnum((unsigned char)n) || n == '.' || n == '_'))
+                    break;
+                next++;
+            }
+            kind = SYNTAX_NUMBER;
+        } else if (syntax_ident_start(c)) {
+            next = pos + 1;
+            while (next < length && syntax_ident_char(text[start + next]))
+                next++;
+            bool is_type = false;
+            if (syntax_is_keyword(text + start + pos, next - pos, &is_type))
+                kind = is_type ? SYNTAX_TYPE : SYNTAX_KEYWORD;
+        }
+
+        if (next <= pos)
+            next = pos + 1;
+
+        if (kind != SYNTAX_TEXT) {
+            x = syntax_emit(canvas, font, x, y, row_height,
+                            text + start + last, pos - last,
+                            g_theme.text, clip);
+            x = syntax_emit(canvas, font, x, y, row_height,
+                            text + start + pos, next - pos,
+                            syntax_color(kind), clip);
+            last = next;
+        }
+        pos = next;
+    }
+
+    return syntax_emit(canvas, font, x, y, row_height,
+                       text + start + last, length - last,
+                       g_theme.text, clip);
+}
+
+static void syntax_draw_cursor(struct nk_context *ctx,
+                               struct nk_command_buffer *canvas,
+                               const struct tab *tab, struct nk_rect clip,
+                               float area_x, float area_y, float row_height)
+{
+    if (!tab->edit.active || tab->line_count <= 0)
+        return;
+
+    int line = 1, column = 1;
+    cursor_line_column(tab, &line, &column);
+    int index = line - 1;
+    if (index < 0 || index >= tab->line_count)
+        return;
+
+    int length = 0;
+    const char *text = tab_text(tab, &length);
+    nk_rune unicode = 0;
+    int glyph = 0;
+    const char *at = nk_str_at_const(&tab->edit.string, tab->edit.cursor,
+                                     &unicode, &glyph);
+    size_t byte = at ? (size_t)(at - text) : (size_t)length;
+    size_t start = tab->line_offsets[index];
+    if (byte < start)
+        byte = start;
+    if (byte > (size_t)length)
+        byte = (size_t)length;
+
+    const struct nk_user_font *font = ctx->style.font;
+    float width = font->width(font->userdata, font->height,
+                              text + start, (int)(byte - start));
+    float x = area_x - tab->edit.scrollbar.x + width;
+    float y = area_y - tab->edit.scrollbar.y + (float)index * row_height;
+    if (y + font->height < clip.y || y > clip.y + clip.h)
+        return;
+    y += (row_height - font->height) * 0.5f;
+    nk_fill_rect(canvas, nk_rect(x, y, ctx->style.edit.cursor_size,
+                                 font->height),
+                 0, g_theme.edit_cursor);
+}
+
+static void syntax_draw(struct app *app, struct nk_context *ctx,
+                        struct tab *tab, struct nk_rect bounds)
+{
+    (void)app;
+    if (!tab->line_offsets || tab->line_count <= 0)
+        return;
+
+    const struct nk_user_font *font = ctx->style.font;
+    float row_height = font->height + ctx->style.edit.row_padding;
+    float border = ctx->style.edit.border;
+    struct nk_rect area = nk_rect(
+        bounds.x + ctx->style.edit.padding.x + border,
+        bounds.y + ctx->style.edit.padding.y + border,
+        bounds.w - (2.0f * ctx->style.edit.padding.x + 2.0f * border) -
+            ctx->style.edit.scrollbar_size.x,
+        bounds.h - (2.0f * ctx->style.edit.padding.y + 2.0f * border));
+    if (area.w <= 0 || area.h <= 0)
+        return;
+
+    int first = (int)(tab->edit.scrollbar.y / row_height);
+    if (first < 0)
+        first = 0;
+    if (first >= tab->line_count)
+        return;
+    int visible = (int)(area.h / row_height) + 3;
+    int last = first + visible;
+    if (last > tab->line_count)
+        last = tab->line_count;
+
+    int length = 0;
+    const char *text = tab_text(tab, &length);
+    (void)length;
+
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+    struct nk_rect old_clip = canvas->clip;
+    nk_push_scissor(canvas, area);
+
+    for (int line = first; line < last; ++line) {
+        float y = area.y - tab->edit.scrollbar.y +
+                  (float)line * row_height;
+        if (y + row_height < area.y || y > area.y + area.h)
+            continue;
+        syntax_draw_line(canvas, font, tab, text, line,
+                         area.x - tab->edit.scrollbar.x, y,
+                         row_height, area);
+    }
+    syntax_draw_cursor(ctx, canvas, tab, area, area.x, area.y, row_height);
+
+    nk_push_scissor(canvas, old_clip);
+}
+
+struct saved_edit_colors {
+    struct nk_color text_normal;
+    struct nk_color text_hover;
+    struct nk_color text_active;
+    struct nk_color selected_text_normal;
+    struct nk_color selected_text_hover;
+    struct nk_color cursor_normal;
+    struct nk_color cursor_hover;
+    struct nk_color cursor_text_normal;
+    struct nk_color cursor_text_hover;
+};
+
+static void syntax_hide_edit_text(struct nk_context *ctx,
+                                  struct saved_edit_colors *saved)
+{
+    saved->text_normal = ctx->style.edit.text_normal;
+    saved->text_hover = ctx->style.edit.text_hover;
+    saved->text_active = ctx->style.edit.text_active;
+    saved->selected_text_normal = ctx->style.edit.selected_text_normal;
+    saved->selected_text_hover = ctx->style.edit.selected_text_hover;
+    saved->cursor_normal = ctx->style.edit.cursor_normal;
+    saved->cursor_hover = ctx->style.edit.cursor_hover;
+    saved->cursor_text_normal = ctx->style.edit.cursor_text_normal;
+    saved->cursor_text_hover = ctx->style.edit.cursor_text_hover;
+
+    struct nk_color transparent = nk_rgba(0, 0, 0, 0);
+    ctx->style.edit.text_normal = transparent;
+    ctx->style.edit.text_hover = transparent;
+    ctx->style.edit.text_active = transparent;
+    ctx->style.edit.selected_text_normal = transparent;
+    ctx->style.edit.selected_text_hover = transparent;
+    ctx->style.edit.cursor_normal = transparent;
+    ctx->style.edit.cursor_hover = transparent;
+    ctx->style.edit.cursor_text_normal = transparent;
+    ctx->style.edit.cursor_text_hover = transparent;
+}
+
+static void syntax_restore_edit_text(struct nk_context *ctx,
+                                     const struct saved_edit_colors *saved)
+{
+    ctx->style.edit.text_normal = saved->text_normal;
+    ctx->style.edit.text_hover = saved->text_hover;
+    ctx->style.edit.text_active = saved->text_active;
+    ctx->style.edit.selected_text_normal = saved->selected_text_normal;
+    ctx->style.edit.selected_text_hover = saved->selected_text_hover;
+    ctx->style.edit.cursor_normal = saved->cursor_normal;
+    ctx->style.edit.cursor_hover = saved->cursor_hover;
+    ctx->style.edit.cursor_text_normal = saved->cursor_text_normal;
+    ctx->style.edit.cursor_text_hover = saved->cursor_text_hover;
+}
+
+struct saved_selectable {
+    struct nk_style_item normal;
+    struct nk_style_item hover;
+    struct nk_style_item pressed;
+    struct nk_style_item normal_active;
+    struct nk_style_item hover_active;
+    struct nk_style_item pressed_active;
+    struct nk_color text_normal;
+    struct nk_color text_hover;
+    struct nk_color text_pressed;
+    struct nk_color text_normal_active;
+    struct nk_color text_hover_active;
+    struct nk_color text_pressed_active;
+};
+
+static void diagnostic_selectable_push(struct nk_context *ctx,
+                                       struct saved_selectable *saved,
+                                       struct nk_color text)
+{
+    struct nk_style_selectable *style = &ctx->style.selectable;
+    saved->normal = style->normal;
+    saved->hover = style->hover;
+    saved->pressed = style->pressed;
+    saved->normal_active = style->normal_active;
+    saved->hover_active = style->hover_active;
+    saved->pressed_active = style->pressed_active;
+    saved->text_normal = style->text_normal;
+    saved->text_hover = style->text_hover;
+    saved->text_pressed = style->text_pressed;
+    saved->text_normal_active = style->text_normal_active;
+    saved->text_hover_active = style->text_hover_active;
+    saved->text_pressed_active = style->text_pressed_active;
+
+    struct nk_color hover = g_theme.select;
+    hover.a = 70;
+    struct nk_color active = g_theme.select_active;
+    active.a = 100;
+
+    style->normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    style->hover = nk_style_item_color(hover);
+    style->pressed = nk_style_item_color(hover);
+    style->normal_active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    style->hover_active = nk_style_item_color(hover);
+    style->pressed_active = nk_style_item_color(active);
+
+    style->text_normal = text;
+    style->text_hover = text;
+    style->text_pressed = text;
+    style->text_normal_active = text;
+    style->text_hover_active = text;
+    style->text_pressed_active = text;
+}
+
+static void diagnostic_selectable_pop(struct nk_context *ctx,
+                                      const struct saved_selectable *saved)
+{
+    struct nk_style_selectable *style = &ctx->style.selectable;
+    style->normal = saved->normal;
+    style->hover = saved->hover;
+    style->pressed = saved->pressed;
+    style->normal_active = saved->normal_active;
+    style->hover_active = saved->hover_active;
+    style->pressed_active = saved->pressed_active;
+    style->text_normal = saved->text_normal;
+    style->text_hover = saved->text_hover;
+    style->text_pressed = saved->text_pressed;
+    style->text_normal_active = saved->text_normal_active;
+    style->text_hover_active = saved->text_hover_active;
+    style->text_pressed_active = saved->text_pressed_active;
+}
+
 static void welcome(struct nk_context *ctx)
 {
     nk_layout_row_dynamic(ctx, 12, 1);
@@ -1339,12 +2264,50 @@ static void main_pane(struct app *app, struct nk_context *ctx, float height,
 
     if (app->active >= 0 && app->active < app->tab_count) {
         struct tab *tab = &app->tabs[app->active];
+        bool syntax = tab_syntax_supported(tab);
         nk_layout_row_dynamic(ctx, editor_h, 1);
+        struct nk_rect editor_bounds = nk_widget_bounds(ctx);
+
+        struct saved_edit_colors saved_colors;
+        if (syntax)
+            syntax_hide_edit_text(ctx, &saved_colors);
+
         /* NK_EDIT_EDITOR alone starts in view mode (Insert toggles editing).
          * For an IDE we want a click to be enough, so force insert mode. */
         nk_edit_buffer(ctx, NK_EDIT_EDITOR | NK_EDIT_ALWAYS_INSERT_MODE,
                        &tab->edit, nk_filter_default);
+
+        if (syntax)
+            syntax_restore_edit_text(ctx, &saved_colors);
+
+        if (syntax || app->jump_pending)
+            tab_rebuild_lines(tab);
         tab->dirty = tab_dirty_now(tab);
+
+        if (syntax)
+            syntax_draw(app, ctx, tab, editor_bounds);
+
+        if (app->jump_pending) {
+            int line = app->jump_line;
+            if (line < 1)
+                line = 1;
+            if (line > tab->line_count)
+                line = tab->line_count;
+            if (line >= 1 && tab->line_count > 0) {
+                int length = 0;
+                const char *text = tab_text(tab, &length);
+                size_t offset = tab->line_offsets[line - 1];
+                if (offset > (size_t)length)
+                    offset = (size_t)length;
+                int rune = nk_utf_len(text, (int)offset);
+                tab->edit.cursor = rune;
+                tab->edit.select_start = rune;
+                tab->edit.select_end = rune;
+                tab->edit.has_preferred_x = 0;
+                set_status(app, "Jumped to line %d", line);
+            }
+            app->jump_pending = false;
+        }
     } else if (editor_h > 0) {
         nk_layout_row_dynamic(ctx, editor_h, 1);
         if (nk_group_begin(ctx, "welcome", NK_WINDOW_BORDER |
@@ -1397,11 +2360,42 @@ static void main_pane(struct app *app, struct nk_context *ctx, float height,
                 while (pos < app->output_len && app->output[pos] != '\n')
                     pos++;
                 size_t len = pos - start;
+                size_t shown = len;
+                if (shown >= 4096)
+                    shown = 4095;
+                char linebuf[4096];
+                if (shown)
+                    memcpy(linebuf, app->output + start, shown);
+                linebuf[shown] = '\0';
+
+                char diagnostic_path[PATH_MAX];
+                int diagnostic_line = 0;
+                bool diagnostic = parse_compiler_location(
+                    linebuf, (int)shown, diagnostic_path,
+                    sizeof(diagnostic_path), &diagnostic_line);
+                struct nk_color line_color = g_theme.text;
+                if (line_contains(linebuf, "error"))
+                    line_color = g_theme.error;
+                else if (line_contains(linebuf, "warning"))
+                    line_color = g_theme.syntax_number;
+
                 nk_layout_row_dynamic(ctx, (float)row_height, 1);
-                if (len)
-                    nk_text(ctx, app->output + start, (int)len, NK_TEXT_LEFT);
-                else
+                if (diagnostic) {
+                    struct saved_selectable saved_selectable;
+                    diagnostic_selectable_push(ctx, &saved_selectable,
+                                               line_color);
+                    nk_bool selected = nk_false;
+                    if (nk_selectable_label(ctx, linebuf, NK_TEXT_LEFT,
+                                            &selected))
+                        jump_to_diagnostic(app, ctx, diagnostic_path,
+                                           diagnostic_line);
+                    diagnostic_selectable_pop(ctx, &saved_selectable);
+                } else if (shown) {
+                    nk_text_colored(ctx, linebuf, (int)shown, NK_TEXT_LEFT,
+                                    line_color);
+                } else {
                     nk_label(ctx, "", NK_TEXT_LEFT);
+                }
                 if (pos < app->output_len)
                     pos++;
             }
@@ -1612,6 +2606,11 @@ static void popups(struct app *app, struct nk_context *ctx, int width,
 static void draw_ui(struct app *app, struct nk_context *ctx, int width,
                     int height)
 {
+    if (app->theme_dirty) {
+        style_apply(ctx, app->light_mode);
+        app->theme_dirty = false;
+    }
+
     struct nk_rect bounds = nk_rect(0, 0, (float)width, (float)height);
     if (!nk_begin(ctx, "Nuklear IDE", bounds,
                   NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
@@ -1885,7 +2884,7 @@ int main(int argc, char **argv)
     glfwSetWindowSizeLimits(window, 760, 480, GLFW_DONT_CARE, GLFW_DONT_CARE);
 
     struct nk_context *ctx = nk_glfw3_init(window, NK_GLFW3_INSTALL_CALLBACKS);
-    style_apply(ctx);
+    style_apply(ctx, app.light_mode);
     load_font(ctx);
 
     bool ctrl_n = false, ctrl_o = false, ctrl_s = false;
