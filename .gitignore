@@ -11,3 +11,4 @@ _tmp/
 *.o
 *.iso
 .DS_Store
+nuklear-ide/nuklear-ide

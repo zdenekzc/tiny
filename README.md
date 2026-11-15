@@ -138,6 +138,24 @@ The control VM checks this route as well: `tests/run-toaru.sh` builds
 `tests/gcc/hello.c` with the host gcc into `/share/gcc_hello` and runs it.
 TinyCC remains the compiler that runs *inside* ToaruOS.
 
+## Nuklear IDE (Linux first)
+
+`nuklear-ide/` is a small, self-contained IDE example built on Nuklear with a
+GLFW/OpenGL 2.1 backend. It runs on the host (not in ToaruOS) and is meant as a
+readable starting point: file tree, tabs, editor, asynchronous compile/run and
+an output pane.
+
+```sh
+cd nuklear-ide
+make
+make run            # opens demo/hello.c; F5 compiles and runs it
+```
+
+Requires GLFW 3 development headers and OpenGL (`glfw-devel` +
+`mesa-libGL-devel` on Fedora). See `nuklear-ide/README.md` for shortcuts,
+architecture and porting notes. The ToaruOS part of this repository is
+independent of it.
+
 ## Controlling the VM
 
 ```bash
@@ -177,6 +195,10 @@ tiny/
 │   ├─ build.sh            # mc | probe | stage | clean (cross tcc)
 │   ├─ patches/mc-toaru.patch   # the single carrier of the mini-commander port
 │   └─ toaru/              # ncurses shim, compat layer, missing headers
+├─ nuklear-ide/            # small Nuklear IDE example (Linux, GLFW/OpenGL)
+│   ├─ main.c              # UI, editor tabs, file tree, async build/run
+│   ├─ demo/hello.c        # F5 demo program
+│   └─ vendor/             # nuklear.h + nuklear_glfw_gl2.h
 ├─ mklibc.sh               # libc.a, crt*.o and headers from the ISO (used by mktcc.sh)
 ├─ mktcc.sh                # TinyCC: cross compiler and in-guest compiler
 ├─ mkshare.sh              # ext2 image from _build/push
