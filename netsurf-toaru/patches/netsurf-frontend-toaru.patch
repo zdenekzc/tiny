@@ -1,0 +1,73 @@
+diff -ruN fe-a/gui.c fe-b/gui.c
+--- fe-a/gui.c	2026-11-15 15:47:36.480080071 +0100
++++ fe-b/gui.c	2026-11-15 16:47:42.611459078 +0100
+@@ -258,9 +258,11 @@
+ 	}
+ }
+ 
++static void update_viewport(struct gui_window *gw);
++
+ static void redraw_placeholder(struct gui_window *gw) {
+ 	draw_fill(gw->ctx, rgb(255,255,255));
+-	decor_get_bounds(gw->win, &gw->bounds);
++	update_viewport(gw);
+ 
+ 	menu_bar.x = gw->bounds.left_width;
+ 	menu_bar.y = gw->bounds.top_height;
+@@ -1012,11 +1014,14 @@
+ void toaru_mainloop(void) {
+ 
+ 	while (1) {
++		/* An invalidation can happen while browser_window_create() is
++		 * still on the stack, before this loop starts.  Preserve it
++		 * instead of clearing it here or the first page never paints. */
++		int redraw = redraw_next;
+ 		redraw_next = 0;
+ 		int fds[1] = {fileno(yctx->sock)};
+ 		int when = schedule_run();
+ 		int index = fswait2(1,fds,redraw_next ? 0 : when);
+-		int redraw = 0;
+ 
+ 		if (index == 0) {
+ 			yutani_msg_t * m = yutani_poll(yctx);
+diff -ruN fe-a/main.c fe-b/main.c
+--- fe-a/main.c	2026-11-15 15:47:36.480080071 +0100
++++ fe-b/main.c	2026-11-15 16:47:42.609459079 +0100
+@@ -80,9 +80,10 @@
+ 	if (ret != NSERROR_OK) die("NetSurf operation table failed registration");
+ 	nslog_init(nslog_stream_configure, &argc, argv);
+ 
+-	respaths = malloc(sizeof(char*)*2);
+-	respaths[0] = strdup("/usr/share/netsurf");
+-	respaths[1] = NULL;
++	respaths = malloc(sizeof(char*)*3);
++	respaths[0] = strdup("/extras/netsurf");
++	respaths[1] = strdup("/usr/share/netsurf");
++	respaths[2] = NULL;
+ 
+ 	/* user options setup */
+ 	ret = nsoption_init(set_defaults, &nsoptions, &nsoptions_default);
+diff -ruN fe-a/Makefile.tools fe-b/Makefile.tools
+--- fe-a/Makefile.tools	2026-11-15 15:47:36.480080071 +0100
++++ fe-b/Makefile.tools	2026-11-15 16:01:41.813762919 +0100
+@@ -1,16 +1,4 @@
+-# -*- mode: makefile-gmake -*-
+-##
+-## tool setup for the toaru target
+-##
+-
+-ifeq ($(origin GCCSDK_INSTALL_ENV),undefined)
+-  PKG_CONFIG := pkg-config
+-else
+-  PKG_CONFIG := PKG_CONFIG_LIBDIR="$(GCCSDK_INSTALL_ENV)/lib/pkgconfig" pkg-config                
+-endif
+-
+-ifneq ($(origin GCCSDK_INSTALL_CROSSBIN),undefined)
+-  CC := $(wildcard $(GCCSDK_INSTALL_CROSSBIN)/*gcc)
+-  CXX := $(wildcard $(GCCSDK_INSTALL_CROSSBIN)/*g++)
+-endif
+-
++# Target tools for the ToaruOS frontend.
++# The support libraries and zlib are installed in a cross prefix; pkg-config
++# must read that prefix, not the host's libraries.
++PKG_CONFIG := PKG_CONFIG_LIBDIR=$(PREFIX)/lib/pkgconfig pkg-config

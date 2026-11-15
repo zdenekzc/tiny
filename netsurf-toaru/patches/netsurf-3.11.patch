@@ -1,0 +1,105 @@
+diff -ruN core-a/frontends/Makefile.hts core-b/frontends/Makefile.hts
+--- core-a/frontends/Makefile.hts	2023-12-28 01:26:04.000000000 +0100
++++ core-b/frontends/Makefile.hts	2026-11-15 16:01:41.831716266 +0100
+@@ -114,7 +114,7 @@
+ endif
+ 
+ # valid values for the TARGET
+-VLDTARGET := amiga atari beos framebuffer gtk monkey riscos windows
++VLDTARGET := amiga atari beos framebuffer gtk monkey riscos windows toaru
+ 
+ # Check for valid TARGET
+ ifeq ($(filter $(VLDTARGET),$(TARGET)),)
+diff -ruN core-a/Makefile.config core-b/Makefile.config
+--- core-a/Makefile.config	1970-01-01 01:00:00.000000000 +0100
++++ core-b/Makefile.config	2026-11-15 16:01:41.834762909 +0100
+@@ -0,0 +1,16 @@
++NETSURF_USE_CURL := NO
++NETSURF_USE_OPENSSL := NO
++NETSURF_USE_JPEG := NO
++NETSURF_USE_JPEGXL := NO
++NETSURF_USE_PNG := NO
++NETSURF_USE_BMP := NO
++NETSURF_USE_GIF := NO
++NETSURF_USE_WEBP := NO
++NETSURF_USE_NSSVG := NO
++NETSURF_USE_ROSPRITE := NO
++NETSURF_USE_NSPSL := NO
++NETSURF_USE_NSLOG := NO
++NETSURF_USE_UTF8PROC := NO
++NETSURF_USE_DUKTAPE := NO
++NETSURF_USE_HARU_PDF := NO
++NETSURF_USE_LIBICONV_PLUG := YES
+diff -ruN core-a/utils/config.h core-b/utils/config.h
+--- core-a/utils/config.h	2023-12-28 01:26:04.000000000 +0100
++++ core-b/utils/config.h	2026-11-15 16:09:07.987543906 +0100
+@@ -76,7 +76,7 @@
+  */
+ #if ((defined(_GNU_SOURCE) && !defined(__APPLE__)) ||	\
+      defined(__riscos__) || \
+-     defined(NetBSD_v8))
++     defined(NetBSD_v8) || defined(TOARUOS))
+ #define HAVE_STRCHRNUL
+ #else
+ #undef HAVE_STRCHRNUL
+@@ -100,12 +100,12 @@
+ 
+ #define HAVE_INETATON
+ #if (defined(_WIN32) || \
+-     defined(__serenity__))
++     defined(__serenity__) || defined(TOARUOS))
+ #undef HAVE_INETATON
+ #endif
+ 
+ #define HAVE_INETPTON
+-#if (defined(_WIN32))
++#if (defined(_WIN32) || defined(TOARUOS))
+ #undef HAVE_INETPTON
+ #endif
+ 
+@@ -136,7 +136,7 @@
+ #endif
+ 
+ #define HAVE_MMAP
+-#if (defined(_WIN32) || defined(__riscos__) || defined(__HAIKU__) || defined(__BEOS__) || defined(__amigaos4__) || defined(__AMIGA__) || defined(__MINT__))
++#if (defined(_WIN32) || defined(__riscos__) || defined(__HAIKU__) || defined(__BEOS__) || defined(__amigaos4__) || defined(__AMIGA__) || defined(__MINT__) || defined(TOARUOS))
+ #undef HAVE_MMAP
+ #endif
+ 
+@@ -149,14 +149,14 @@
+ #define HAVE_DIRFD
+ #define HAVE_UNLINKAT
+ #define HAVE_FSTATAT
+-#if (defined(_WIN32) || defined(__riscos__) || defined(__HAIKU__) || defined(__BEOS__) || defined(__amigaos4__) || defined(__AMIGA__) || defined(__MINT__))
++#if (defined(_WIN32) || defined(__riscos__) || defined(__HAIKU__) || defined(__BEOS__) || defined(__amigaos4__) || defined(__AMIGA__) || defined(__MINT__) || defined(TOARUOS))
+ #undef HAVE_DIRFD
+ #undef HAVE_UNLINKAT
+ #undef HAVE_FSTATAT
+ #endif
+ 
+ #define HAVE_REGEX
+-#if (defined(__serenity__))
++#if (defined(__serenity__) || defined(TOARUOS))
+ #undef HAVE_REGEX
+ #endif
+ 
+diff -ruN core-a/utils/hashmap.h core-b/utils/hashmap.h
+--- core-a/utils/hashmap.h	2023-12-28 01:26:04.000000000 +0100
++++ core-b/utils/hashmap.h	2026-11-15 16:09:07.987646070 +0100
+@@ -29,6 +29,16 @@
+  * clone function in their parameters.  They also manage the value memory
+  * directly.
+  */
++/* The ToaruOS client libraries link their own hashmap implementation with the
++ * same symbol names; keep NetSurf's separate at link time. */
++#define hashmap_create ns_hashmap_create
++#define hashmap_destroy ns_hashmap_destroy
++#define hashmap_lookup ns_hashmap_lookup
++#define hashmap_insert ns_hashmap_insert
++#define hashmap_remove ns_hashmap_remove
++#define hashmap_iterate ns_hashmap_iterate
++#define hashmap_count ns_hashmap_count
++
+ typedef struct hashmap_s hashmap_t;
+ 
+ /**

@@ -1,0 +1,24 @@
+diff --git a/lib/graphics.c b/lib/graphics.c
+index 9c5fe27..d8e5748 100644
+--- a/lib/graphics.c
++++ b/lib/graphics.c
+@@ -435,12 +435,19 @@ int load_sprite_bmp(sprite_t *, FILE*);
+ int check_sprite_bmp(FILE*);
+ int load_sprite_tga(sprite_t *, FILE*);
+ int check_sprite_tga(FILE*);
++int load_sprite_png(sprite_t *, FILE*);
++int check_sprite_png(FILE*);
++int load_sprite_jpeg(sprite_t *, FILE*);
++int check_sprite_jpeg(FILE*);
+ 
+ static void _load_format_libraries() {
+ 
+ 	/* Load the integrated ones so they are checked last */
+ 	add_lib("tga", load_sprite_tga, check_sprite_tga);
+ 	add_lib("bmp", load_sprite_bmp, check_sprite_bmp);
++	/* Static builds carry the image decoders in the same executable. */
++	add_lib("jpeg", load_sprite_jpeg, check_sprite_jpeg);
++	add_lib("png", load_sprite_png, check_sprite_png);
+ 
+ 	for (char ** l = libs; *l; ++l) {
+ 		char * lib_name, *load_name, *check_name;
