@@ -196,8 +196,8 @@ static bool nk_toaru_init(struct nk_toaru *t, struct nk_context *ctx,
     yutani_window_move(t->yctx, t->win,
                        ((int)t->yctx->display_width - width) / 2,
                        ((int)t->yctx->display_height - height) / 2);
-    t->gfx = init_graphics_yutani(t->win);
-    if (!t->gfx)
+    t->gfx = init_graphics_yutani_double_buffer(t->win);
+    if (!t->gfx || !t->gfx->backbuffer)
         return false;
     t->width = t->win->width;
     t->height = t->win->height;
@@ -247,7 +247,7 @@ static void nk_toaru_render(struct nk_toaru *t, struct nk_context *ctx)
         return;
     int width = t->win->width;
     int height = t->win->height;
-    uint32_t *fb = (uint32_t *)t->win->buffer;
+    uint32_t *fb = (uint32_t *)t->gfx->backbuffer;
     if (!fb)
         return;
     memset(fb, 0, (size_t)width * (size_t)height * sizeof(uint32_t));
@@ -302,6 +302,11 @@ static void nk_toaru_render(struct nk_toaru *t, struct nk_context *ctx)
     nk_buffer_clear(&t->vertices);
     nk_buffer_clear(&t->elements);
 
+    /* Render off-screen, then copy the finished frame into the shared window
+     * buffer.  Drawing directly into the shared buffer makes the compositor
+     * show half-cleared frames while the mouse is moving. */
+    memcpy(t->win->buffer, t->gfx->backbuffer,
+           (size_t)t->win->width * (size_t)t->win->height * 4);
     yutani_flip(t->yctx, t->win);
 }
 

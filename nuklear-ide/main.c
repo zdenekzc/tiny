@@ -3318,6 +3318,7 @@ int main(int argc, char **argv)
 
     int yutani_fd = fileno(backend.yctx->sock);
     while (!app.should_quit) {
+        double frame_started = now_seconds();
         nk_input_begin(&ctx);
         nk_input_motion(&ctx, backend.mouse_x, backend.mouse_y);
         nk_input_button(&ctx, NK_BUTTON_LEFT, backend.mouse_x,
@@ -3357,6 +3358,13 @@ int main(int argc, char **argv)
 
         draw_ui(&app, &ctx, backend.win->width, backend.win->height);
         nk_toaru_render(&backend, &ctx);
+
+        /* Mouse motion can arrive much faster than the software renderer;
+         * cap the window at ~30 fps so flips do not flood the compositor. */
+        double elapsed = now_seconds() - frame_started;
+        const double target = 1.0 / 30.0;
+        if (elapsed < target)
+            usleep((useconds_t)((target - elapsed) * 1000000.0));
     }
 
     nk_toaru_shutdown(&backend);
