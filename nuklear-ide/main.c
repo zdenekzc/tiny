@@ -8,10 +8,10 @@
  * UI keeps repainting while a program is running.
  *
  * Build:   make
- * Run:     ./nuklear-ide [project-dir | file]
+ * Run:     ./nuklear-ide.bin [project-dir | file]
  *          make run        # opens demo/hello.c
  *
- * Public-domain Nuklear headers are in vendor/.
+ * Public-domain Nuklear headers are in _import/.
  */
 #define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
@@ -44,10 +44,10 @@
 #define NK_INCLUDE_FONT_BAKING
 #define NK_INCLUDE_DEFAULT_FONT
 #define NK_IMPLEMENTATION
-#include "vendor/nuklear.h"
+#include "_import/nuklear.h"
 
 #define NK_GLFW_GL2_IMPLEMENTATION
-#include "vendor/nuklear_glfw_gl2.h"
+#include "_import/nuklear_glfw_gl2.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -173,6 +173,7 @@ struct app {
     bool theme_dirty;
     int jump_line;
     bool jump_pending;
+    bool focus_editor;
 
     bool should_quit;
 };
@@ -714,8 +715,7 @@ static bool resolve_diagnostic_path(struct app *app, const char *path,
     return false;
 }
 
-static void jump_to_diagnostic(struct app *app, struct nk_context *ctx,
-                               const char *path, int line)
+static void jump_to_diagnostic(struct app *app, const char *path, int line)
 {
     char absolute[PATH_MAX];
     if (!resolve_diagnostic_path(app, path, absolute, sizeof(absolute))) {
@@ -727,7 +727,7 @@ static void jump_to_diagnostic(struct app *app, struct nk_context *ctx,
 
     app->jump_line = line;
     app->jump_pending = true;
-    nk_edit_focus(ctx, NK_EDIT_ALWAYS_INSERT_MODE);
+    app->focus_editor = true;
     set_status(app, "Jumping to %s:%d", base_name(absolute), line);
 }
 
@@ -1115,7 +1115,7 @@ static bool start_build(struct app *app, bool then_run)
             output_printf(app,
                 "TinyCC (tcc) not found.\n\n"
                 "Install tcc, or point the IDE at it:\n"
-                "  TCC=/path/to/tcc ./nuklear-ide ...\n\n"
+                "  TCC=/path/to/tcc ./nuklear-ide.bin ...\n\n"
                 "In this repository you can build it with:\n"
                 "  make -C nuklear-ide tcc\n");
             set_status(app, "TinyCC not found — set TCC or run make tcc");
@@ -2266,6 +2266,10 @@ static void main_pane(struct app *app, struct nk_context *ctx, float height,
         struct tab *tab = &app->tabs[app->active];
         bool syntax = tab_syntax_supported(tab);
         nk_layout_row_dynamic(ctx, editor_h, 1);
+        if (app->focus_editor) {
+            nk_edit_focus(ctx, NK_EDIT_ALWAYS_INSERT_MODE);
+            app->focus_editor = false;
+        }
         struct nk_rect editor_bounds = nk_widget_bounds(ctx);
 
         struct saved_edit_colors saved_colors;
@@ -2387,7 +2391,7 @@ static void main_pane(struct app *app, struct nk_context *ctx, float height,
                     nk_bool selected = nk_false;
                     if (nk_selectable_label(ctx, linebuf, NK_TEXT_LEFT,
                                             &selected))
-                        jump_to_diagnostic(app, ctx, diagnostic_path,
+                        jump_to_diagnostic(app, diagnostic_path,
                                            diagnostic_line);
                     diagnostic_selectable_pop(ctx, &saved_selectable);
                 } else if (shown) {

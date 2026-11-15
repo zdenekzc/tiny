@@ -1,5 +1,5 @@
 # build artifacts and downloads — everything here can be recreated
-_import/
+/_import/
 _build/
 !_build/minicmd/
 !_build/minicmd/mini-commander/
@@ -11,4 +11,4 @@ _tmp/
 *.o
 *.iso
 .DS_Store
-nuklear-ide/nuklear-ide
+nuklear-ide/nuklear-ide.bin

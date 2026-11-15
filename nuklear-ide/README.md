@@ -59,14 +59,29 @@ a potřebuje `-B`, lze nastavit i `TCC_B=/cesta/k/tinycc`.
 Nebo ručně:
 
 ```sh
-./nuklear-ide                    # aktuální adresář jako projekt
-./nuklear-ide /cesta/k/projektu  # jiný projekt
-./nuklear-ide demo/hello.c       # otevře soubor; projekt = jeho adresář
+./nuklear-ide.bin                    # aktuální adresář jako projekt
+./nuklear-ide.bin /cesta/k/projektu  # jiný projekt
+./nuklear-ide.bin demo/hello.c       # otevře soubor; projekt = jeho adresář
 ```
 
 Editor používá font z `IDE_FONT`, jinak zkusí běžné systémové mono fonty
 (Liberation Mono, DejaVu Sans Mono, Adwaita Mono) a nakonec vestavěný
 Nuklear font.
+
+### Aktualizace Nuklearu
+
+Obě hlavičky jsou uložené v `_import/`, takže projekt jde sestavit offline.
+Pro jejich znovustažení slouží:
+
+```sh
+./fetch-nuklear.sh              # pevný commit z GitHubu
+NK_REF=master ./fetch-nuklear.sh  # poslední master
+NK_DEST=/tmp/nk ./fetch-nuklear.sh  # kamkoli jinam
+```
+
+Skript stáhne `nuklear.h` a `demo/glfw_opengl2/nuklear_glfw_gl2.h` z
+`Immediate-Mode-UI/Nuklear`, ověří základní markery a teprve pak soubory
+přepíše. Výchozí pin odpovídá aktuálně commitnutým hlavičkám.
 
 ## Ovládání
 
@@ -94,9 +109,9 @@ klikáním; kliknutí na soubor ho otevře v novém tabu.
 
 TinyCC píše diagnostiku ve formátu `cesta:řádek: error: …`. Panel Output
 takovým řádkům rozumí: jsou obarvené a kliknutím na ně se otevře příslušný
-soubor a kurzor se přesune na daný řádek. Funguje to i pro řádky
-`In file included from …:N:` a pro warningy. Nelze kliknout na chyby linkeru,
-které žádné číslo řádku neobsahují.
+soubor, kurzor se přesune na daný řádek a editor získá fokus, takže se dá hned
+psát. Funguje to i pro řádky `In file included from …:N:` a pro warningy.
+Nelze kliknout na chyby linkeru, které žádné číslo řádku neobsahují.
 
 ### Syntax highlighting
 
@@ -109,11 +124,11 @@ stejné chování editoru a nemusí se kopírovat celý `nk_do_edit`.
 
 ## Co je uvnitř
 
-Všechno je v jediném `main.c` (plus vestavěné hlavičky Nuklearu ve `vendor/`):
+Všechno je v jediném `main.c` (plus stažené hlavičky Nuklearu v `_import/`):
 
 - **UI** — Nuklear kreslí menu, toolbar, strom, taby, editor, output a status
   bar. Vykresluje se přes GLFW/OpenGL 2.1 backend
-  `vendor/nuklear_glfw_gl2.h`.
+  `_import/nuklear_glfw_gl2.h`.
 - **Editor** — `struct nk_text_edit` z Nuklearu pro každý tab. Uložená verze
   textu slouží jako baseline pro hvězdičku „změněno“. Pro syntaxi se navíc
   staví pole offsetů začátků řádků a stav blokových komentářů.

@@ -11,10 +11,10 @@ endif
 
 LDLIBS += $(GLFW_LIBS) -lGL -lm -lpthread -ldl
 
-TARGET := nuklear-ide
+TARGET := nuklear-ide.bin
 TCC_SRC ?= ../_build/download/tinycc
 SOURCES := main.c
-HEADERS := vendor/nuklear.h vendor/nuklear_glfw_gl2.h
+HEADERS := _import/nuklear.h _import/nuklear_glfw_gl2.h
 
 .PHONY: all run tcc clean
 

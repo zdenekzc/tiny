@@ -156,7 +156,9 @@ Requires GLFW 3 development headers and OpenGL (`glfw-devel` +
 `mesa-libGL-devel` on Fedora) and a host TinyCC. `make tcc` uses `tcc` from
 `PATH` or builds one from `_build/download/tinycc`; `TCC=/path/to/tcc`
 overrides it. TinyCC is C-only, so C++ files use `CXX` for the actual build.
-See `nuklear-ide/README.md` for shortcuts, architecture and porting notes. The
+Nuklear's headers stay in `nuklear-ide/_import/`; `./fetch-nuklear.sh`
+re-downloads them from a pinned upstream commit. See
+`nuklear-ide/README.md` for shortcuts, architecture and porting notes. The
 ToaruOS part of this repository is independent of it.
 
 ## Controlling the VM
@@ -201,7 +203,8 @@ tiny/
 ├─ nuklear-ide/            # small Nuklear IDE example (Linux, GLFW/OpenGL)
 │   ├─ main.c              # UI, editor tabs, file tree, async build/run
 │   ├─ demo/hello.c        # F5 demo program
-│   └─ vendor/             # nuklear.h + nuklear_glfw_gl2.h
+│   ├─ fetch-nuklear.sh    # re-download the headers from upstream
+│   └─ _import/            # downloaded nuklear.h + nuklear_glfw_gl2.h
 ├─ mklibc.sh               # libc.a, crt*.o and headers from the ISO (used by mktcc.sh)
 ├─ mktcc.sh                # TinyCC: cross compiler and in-guest compiler
 ├─ mkshare.sh              # ext2 image from _build/push
