@@ -184,6 +184,31 @@ re-downloads them from a pinned upstream commit. See
 ./toaru-vm.sh stop             # stops QEMU
 ```
 
+## Boot-time benchmark
+
+`tests/bench-boot.sh` compares booting ToaruOS from the ISO (SeaBIOS El Torito
++ the ToaruOS bootloader) with QEMU's direct multiboot boot (`-kernel` /
+`-initrd`).  Both modes get identical QEMU devices and the same kernel command
+line, and both are timed from the QEMU launch to the serial getty prompt
+(`root@livecd` on ttyS1).  The kernel and ramdisk are extracted from the ISO
+unless `KERNEL`/`INITRD` are supplied, so both modes boot the same pair.
+
+```bash
+./tests/bench-boot.sh                    # 7 runs of the stock ISO
+N=5 ISO=_build/netsurf.iso ./tests/bench-boot.sh
+KERNEL=/tmp/kernel INITRD=/tmp/ramdisk.igz ./tests/bench-boot.sh
+```
+
+On the development machine (QEMU 9.2.2, KVM, 1 GiB RAM, 2 vCPUs) the medians
+were 3.78 s vs 1.99 s for the stock 6.7 MB ramdisk, and 6.52 s vs 2.64 s for
+the NetSurf ISO with its 17.6 MB ramdisk.  The difference is dominated by the
+bootloader reading the compressed ramdisk from the emulated ATAPI CD through
+BIOS calls (a few MB/s); QEMU's direct boot loads it from the host file
+instead.  Note that direct boot needs `-append "root=/dev/ram0
+start=--headless"` and the `gettyargs` fw_cfg entry, otherwise userspace will
+not start the serial getty; QEMU's multiboot loader also provides no VBE
+information, so graphical boot should keep using the ISO path.
+
 ## Optional environment variables
 
 | Variable | Meaning |
@@ -203,6 +228,7 @@ The same variables can be passed to `toaru-vm.sh start`.
 ```
 tiny/
 ├─ tests/run-toaru.sh      # one-click: download, build, run
+├─ tests/bench-boot.sh     # ISO vs -kernel/-initrd boot timing
 ├─ tests/examples/*.c      # sample programs (copied to /share)
 ├─ tests/gcc/hello.c       # program built by the host gcc (into /share)
 ├─ user/                   # YOUR files — copied into the root of /share
