@@ -359,6 +359,13 @@ After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
   scrollback, reachable with Shift+PgUp/Shift+PgDn or the mouse wheel. When
   re-entering curses mode, `init_screen()` enters the alternate screen before
   `refresh()`, otherwise it would paint the panels over the output.
+- **ramdisk ownership**: `mkiso.sh` used to repack the ramdisk with
+  `--owner=0`.  `/home/local` is mode 750 in the stock image, so the live
+  session (uid 1000) could not `chdir` to `~/Desktop`; the desktop thus fell
+  back to the current directory and showed `bin`, `cdrom`, `dev`, … as icons.
+  The stock live image is owned by `local` (uid/gid 1000), so the repack now
+  uses `--owner=1000 --group=1000`; the four original launchers (plus the
+  CD-ROM created at boot) are back in the top-left corner.
 - **ext2 and sparse files** — the trickiest thing in the project: `mke2fs -d`
   writes files with holes (zero blocks are not allocated), but `modules/ext2.c`
   in ToaruOS 2.3.2 has two bugs:

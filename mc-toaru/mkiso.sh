@@ -80,8 +80,12 @@ fi
 echo "== repacking ramdisk.igz"
 (
     cd "$WORK/ramdisk"
+    # The live image belongs to the "local" user (uid/gid 1000); only a few
+    # symlinks are root-owned in the stock ramdisk.  Forcing owner 0 here
+    # made /home/local (mode 750) inaccessible to the session, so the desktop
+    # could not chdir to ~/Desktop and fell back to showing "/" as icons.
     find . -mindepth 1 -maxdepth 1 -printf '%P\0' |
-        tar --null --owner=0 --group=0 -cf - -T -
+        tar --null --owner=1000 --group=1000 -cf - -T -
 ) | gzip -9 -n > "$WORK/base/ramdisk.igz"
 
 echo "== rebuilding fat.img"
