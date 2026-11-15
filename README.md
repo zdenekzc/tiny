@@ -1,9 +1,22 @@
 # tiny — ToaruOS + TinyCC + mini-commander
 
-One command downloads, builds and runs **ToaruOS 2.3.2** in QEMU with a working
-**TinyCC** (a compiler running *inside* the guest) and **mini-commander** (`mc`),
-a file manager with viewer and editor built on top of a custom ncurses shim
-for ToaruOS.
+Everything here is built for [ToaruOS](https://github.com/klange/toaruos); the
+individual projects keep their own upstreams:
+
+- **[TinyCC](https://repo.or.cz/tinycc.git)** — a C compiler running *inside*
+  ToaruOS.
+- **[mini-commander](https://github.com/Tomas-M/mini-commander)** — a two-panel
+  file manager with viewer and editor, built on top of a custom ncurses shim
+  for ToaruOS.
+- **[NetSurf](https://www.netsurf-browser.org/)** — a static browser for local
+  files and plain HTTP pages, built with the
+  [ToaruOS frontend](https://github.com/toaruos/netsurf-frontend-toaru).
+- **[Nuklear IDE](nuklear-ide/)** — a small immediate-mode GUI IDE built on
+  [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear) for Linux and
+  ToaruOS.
+
+One command downloads, builds and runs **ToaruOS 2.3.2** in QEMU with all of
+the above.
 
 ```bash
 ./tests/run-toaru.sh
@@ -401,3 +414,7 @@ Third-party components keep their own licenses (see `NOTICE`):
 - TinyCC — LGPL-2.1,
 - ToaruOS — BSD-2-Clause,
 - Nuklear — public domain / MIT.
+
+---
+
+![ToaruOS live session with mini-commander](_pictures/ToaruOS.jpg)
