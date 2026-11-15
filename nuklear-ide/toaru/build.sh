@@ -22,6 +22,7 @@ OUT=${1:-$TOP/_output/nuklear-ide-toaru}
 ELFPAD=$TOP/toaru-elfpad.py
 CC=${CC:-gcc}
 LD=${LD:-ld}
+AR=${AR:-ar}
 
 die() { echo "error: $*" >&2; exit 1; }
 [[ -f $SYS/crt0.o && -f $SYS/libc.a && -d $SYS/include ]] ||
@@ -37,28 +38,49 @@ mkdir -p "$TOP/_tmp"
 WORK=$(mktemp -d "$TOP/_tmp/toaru-ide.XXXXXX") || die "mktemp"
 trap 'rm -rf "$WORK"' EXIT
 
-COMMON="-O2 -g -std=gnu11 -ffreestanding -nostdinc
+# The menu/decorations code loads PNG icons through the sprite loader.  A
+# static binary cannot dlopen libtoaru_png/libtoaru_jpeg, so register the
+# built-in decoders; this is the same patch the NetSurf build uses.
+SPRITE_PATCH=$TOP/netsurf-toaru/patches/toaruos-static-sprites.patch
+if [[ -f $SPRITE_PATCH ]] && ! grep -q 'add_lib("jpeg"' "$TOARU_SRC/lib/graphics.c"; then
+    echo "== enabling static sprite decoders in lib/graphics.c"
+    (cd "$TOARU_SRC" && patch -p1 --batch < "$SPRITE_PATCH")
+fi
+
+# -fplan9-extensions: the ToaruOS headers use anonymous struct embedding
+# (e.g. struct MenuEntry_Normal { struct MenuEntry; ... }).
+COMMON="-O2 -g -std=gnu11 -ffreestanding -nostdinc -fplan9-extensions
         -isystem $SYS/include -I$IDE_DIR -isystem $TOARU_SRC
-        -fno-pie -fno-pic -fno-stack-protector -mno-red-zone"
+        -fno-pie -fno-pic -fno-stack-protector -mno-red-zone -DNO_SSE
+        -include $HERE/compat.h -Wno-error=implicit-function-declaration"
 
 echo "== compiling the IDE"
 "$CC" $COMMON -DIDE_TOARU -Wall -Wextra -Wno-unused-parameter \
     -Wno-builtin-macro-redefined \
     -c "$IDE_DIR/main.c" -o "$WORK/main.o"
 
-# The Yutani client depends on these small utility libraries.  Their sources
-# are taken from the ToaruOS tree; compiling them here keeps the image static.
-for src in yutani hashmap list pex kbd; do
+# The Yutani client and the standard decorations depend on these library
+# sources.  They are taken from the ToaruOS tree and compiled in so the image
+# stays static (the decorations/menu code needs graphics, text, markup and the
+# built-in PNG/JPEG sprite decoders).
+TOARU_LIBS="yutani hashmap list pex kbd decorations menu graphics text
+            icon_cache markup markup_text inflate png jpeg"
+for src in $TOARU_LIBS; do
     echo "== compiling ToaruOS lib/$src.c"
     "$CC" $COMMON -w -c "$TOARU_SRC/lib/$src.c" -o "$WORK/$src.o"
 done
 
 echo "== linking"
+# The library constructors (menu, icon cache) must run after libc's own
+# initialisation, which is an init_array entry in libc's main.o.  Pull that
+# object out and place it before the constructors, as the NetSurf build does.
+"$AR" p "$SYS/libc.a" main.o > "$WORK/libc-main.o"
+# shellcheck disable=SC2086
 "$LD" -m elf_x86_64 -static -Ttext-segment=0x3F000000 \
     -o "$WORK/nuklear-ide" \
-    "$SYS/crt0.o" "$SYS/crti.o" \
-    "$WORK/main.o" "$WORK/yutani.o" "$WORK/hashmap.o" "$WORK/list.o" \
-    "$WORK/pex.o" "$WORK/kbd.o" \
+    "$SYS/crt0.o" "$SYS/crti.o" "$WORK/libc-main.o" \
+    "$WORK/main.o" \
+    $(for src in $TOARU_LIBS; do printf '%s ' "$WORK/$src.o"; done) \
     "$SYS/crtn.o" -L"$SYS" -lc
 
 echo "== padding ELF segments"

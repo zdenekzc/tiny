@@ -1587,7 +1587,11 @@ static void menu_bar(struct app *app, struct nk_context *ctx)
             request_save_as(app);
         if (nk_menu_item_label(ctx, "Close tab            F8", NK_TEXT_LEFT))
             request_close_active(app);
-        nk_layout_row_dynamic(ctx, 1, 1);
+        /* A short empty row as a separator; the next item must start a new
+         * row, otherwise it is drawn into this 6px-high row and clipped. */
+        nk_layout_row_dynamic(ctx, 6, 1);
+        nk_spacer(ctx);
+        nk_layout_row_dynamic(ctx, 22, 1);
         if (nk_menu_item_label(ctx, "Quit                 Ctrl+Q", NK_TEXT_LEFT))
             request_quit(app);
         nk_menu_end(ctx);
@@ -3234,19 +3238,20 @@ static void toaru_feed_key(struct app *app, struct nk_context *ctx,
 }
 
 static void toaru_feed_mouse(struct nk_context *ctx, struct nk_toaru *t,
-                             struct yutani_msg_window_mouse_event *me)
+                             struct yutani_msg_window_mouse_event *me,
+                             int x, int y)
 {
-    t->mouse_x = me->new_x;
-    t->mouse_y = me->new_y;
+    t->mouse_x = x;
+    t->mouse_y = y;
     t->mouse_buttons = me->buttons & (YUTANI_MOUSE_BUTTON_LEFT |
                                       YUTANI_MOUSE_BUTTON_RIGHT |
                                       YUTANI_MOUSE_BUTTON_MIDDLE);
-    nk_input_motion(ctx, me->new_x, me->new_y);
-    nk_input_button(ctx, NK_BUTTON_LEFT, me->new_x, me->new_y,
+    nk_input_motion(ctx, x, y);
+    nk_input_button(ctx, NK_BUTTON_LEFT, x, y,
                     (t->mouse_buttons & YUTANI_MOUSE_BUTTON_LEFT) != 0);
-    nk_input_button(ctx, NK_BUTTON_RIGHT, me->new_x, me->new_y,
+    nk_input_button(ctx, NK_BUTTON_RIGHT, x, y,
                     (t->mouse_buttons & YUTANI_MOUSE_BUTTON_RIGHT) != 0);
-    nk_input_button(ctx, NK_BUTTON_MIDDLE, me->new_x, me->new_y,
+    nk_input_button(ctx, NK_BUTTON_MIDDLE, x, y,
                     (t->mouse_buttons & YUTANI_MOUSE_BUTTON_MIDDLE) != 0);
 
     if (me->buttons & YUTANI_MOUSE_SCROLL_UP)
@@ -3267,13 +3272,53 @@ static void toaru_handle_message(struct app *app, struct nk_context *ctx,
     }
     case YUTANI_MSG_WINDOW_MOUSE_EVENT: {
         struct yutani_msg_window_mouse_event *me = (void *)message->data;
-        if (me->wid == t->win->wid)
-            toaru_feed_mouse(ctx, t, me);
+        if (me->wid != t->win->wid)
+            break;
+
+        /* Title bar / border: move, resize and close are handled by the
+         * decoration library; the UI must not see these events. */
+        int decor = decor_handle_event(t->yctx, message);
+        if (decor == DECOR_CLOSE) {
+            app->should_quit = true;
+            break;
+        }
+        if (decor == DECOR_RIGHT) {
+            decor_show_default_menu(t->win,
+                                    t->win->x + me->new_x,
+                                    t->win->y + me->new_y);
+            break;
+        }
+
+        int x = me->new_x - t->off_x;
+        int y = me->new_y - t->off_y;
+        if (x >= 0 && y >= 0 && x < t->width && y < t->height) {
+            toaru_feed_mouse(ctx, t, me, x, y);
+        } else {
+            /* Pointer left the content area: release any button Nuklear may
+             * still think is held and leave the pointer at its last position. */
+            t->mouse_buttons = 0;
+            nk_input_motion(ctx, t->mouse_x, t->mouse_y);
+            nk_input_button(ctx, NK_BUTTON_LEFT, t->mouse_x, t->mouse_y, 0);
+            nk_input_button(ctx, NK_BUTTON_RIGHT, t->mouse_x, t->mouse_y, 0);
+            nk_input_button(ctx, NK_BUTTON_MIDDLE, t->mouse_x, t->mouse_y, 0);
+        }
         break;
     }
     case YUTANI_MSG_RESIZE_OFFER: {
         struct yutani_msg_window_resize *wr = (void *)message->data;
         if (wr->wid == t->win->wid) {
+            struct decor_bounds bounds;
+            decor_get_bounds(t->win, &bounds);
+            int content_w = wr->width - bounds.width;
+            int content_h = wr->height - bounds.height;
+            if (content_w < 640 || content_h < 480) {
+                uint32_t want_w = content_w < 640
+                    ? (uint32_t)(640 + bounds.width) : wr->width;
+                uint32_t want_h = content_h < 480
+                    ? (uint32_t)(480 + bounds.height) : wr->height;
+                yutani_window_resize_offer(t->yctx, t->win, want_w, want_h);
+                break;
+            }
             yutani_window_resize_accept(t->yctx, t->win, wr->width, wr->height);
             nk_toaru_resize(t, wr->width, wr->height);
             yutani_window_resize_done(t->yctx, t->win);
@@ -3356,7 +3401,7 @@ int main(int argc, char **argv)
         nk_input_end(&ctx);
         shortcuts(&app, &ctx);
 
-        draw_ui(&app, &ctx, backend.win->width, backend.win->height);
+        draw_ui(&app, &ctx, backend.width, backend.height);
         nk_toaru_render(&backend, &ctx);
 
         /* Mouse motion can arrive much faster than the software renderer;

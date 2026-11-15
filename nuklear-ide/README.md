@@ -166,8 +166,10 @@ make toaru
 Build potřebuje sysroot z `./mktcc.sh` a strom ToaruOS 2.3.2:
 `_build/download/toaruos-src` (oba věci vytvoří `./tests/run-toaru.sh`).
 Výsledek je statický ELF, do kterého jsou přilinkované potřebné klientské
-knihovny Yutani (`lib/yutani.c`, `hashmap.c`, `list.c`, `pex.c`, `kbd.c`)
-a ToaruOS libc; za běhu tedy nepotřebuje žádné `.so` knihovny.
+knihovny ToaruOS (`lib/yutani.c`, `hashmap.c`, `list.c`, `pex.c`, `kbd.c`,
+`decorations.c`, `menu.c`, `graphics.c`, `text.c`, `icon_cache.c`, `markup.c`,
+`markup_text.c` a vestavěné `png.c`/`jpeg.c`/`inflate.c`) a ToaruOS libc;
+za běhu tedy nepotřebuje žádné `.so` knihovny.
 
 `tests/run-toaru.sh` integruje IDE do ramdisku:
 
@@ -185,9 +187,14 @@ Bez argumentu si IDE vytvoří zapisovatelný projekt
 
 Backend je v `toaru_backend.h`: vytvoří Yutani okno, přeloží Nuklear
 draw commands na trojúhelníky a rasterizuje je do 32bitového framebufferu
-okna. Nepoužívá OpenGL ani ToaruOS `libtoaru_graphics`; font je vestavěný
-Nuklear ProggyClean. Okno nemá klientské dekorace, takže se zavírá přes
-`File ▸ Quit` / `Ctrl+Q`; resize zprávy z compositoru fungují.
+okna. Nepoužívá OpenGL; font je vestavěný Nuklear ProggyClean.
+
+Okno používá standardní klientské dekorace ToaruOS (`libtoaru_decorations`):
+má titulek „Nuklear IDE“, zavírací tlačítko, jde táhnout za titulkovou lištu,
+maximalizovat dvojklikem a měnit velikost tažením za okraj nebo roh. Po
+resize se obsah přepočítá (Nuklear dostane nové rozměry a framebuffer se
+posune pod titulkovou lištu). `File ▸ Quit` i křížek v titulku ukončí
+aplikaci.
 
 ## Poznámky k portování
 
@@ -206,12 +213,14 @@ na platformě nezávislé.
 
 ## Omezení ukázky
 
+- Linux i ToaruOS varianta jsou pouze grafické. Nuklear je immediate-mode GUI
+  knihovna a nemá připravený terminálový backend (jako ncurses nebo slang),
+  takže textový režim v terminálu by vyžadoval vlastní buňkový renderer.
 - žádná čísla řádků a žádný jazyk server; highlighting je záměrně jednoduchý,
 - žádný debugger ani terminál,
 - output panel nemá automatické scrollování na konec a nelze v něm
   označovat text myší (Copy zkopíruje celý výstup),
 - TinyCC neumí C++; C++ soubory se překládají přes `CXX` (v ToaruOS `CXX`
   není, takže C++ build tam selže),
-- ToaruOS okno nemá klientské dekorace (zavírá se přes menu / Ctrl+Q),
 - undo historie se v Nuklearu resetuje při opětovném kliknutí do editoru,
 - je to ukázka a čitelný starting point, ne produkční IDE.

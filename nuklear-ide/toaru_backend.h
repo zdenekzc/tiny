@@ -15,6 +15,7 @@
 
 #include <toaru/graphics.h>
 #include <toaru/yutani.h>
+#include <toaru/decorations.h>
 
 struct nk_toaru_vertex {
     float position[2];
@@ -43,8 +44,10 @@ struct nk_toaru {
     unsigned int mouse_buttons;
     unsigned int scroll_buttons;
 
-    int width;
+    int width;      /* usable UI area (window minus decorations) */
     int height;
+    int off_x;      /* where the UI area starts inside the window */
+    int off_y;
 };
 
 static uint32_t nk_toaru_pack(int r, int g, int b, int a)
@@ -75,7 +78,7 @@ static void nk_toaru_texture(const struct nk_toaru *t, float u, float v,
 }
 
 static void nk_toaru_triangle(const struct nk_toaru *t, uint32_t *fb,
-                              int fb_width, int fb_height,
+                              int fb_width, int fb_stride, int fb_height,
                               struct nk_rect clip,
                               const struct nk_toaru_vertex *v0,
                               const struct nk_toaru_vertex *v1,
@@ -155,7 +158,7 @@ static void nk_toaru_triangle(const struct nk_toaru *t, uint32_t *fb,
             if (!sa)
                 continue;
 
-            uint32_t *dst = &fb[(size_t)y * (size_t)fb_width + (size_t)x];
+            uint32_t *dst = &fb[(size_t)y * (size_t)fb_stride + (size_t)x];
             uint32_t bg = *dst;
             int da = (int)((bg >> 24) & 0xff);
             int dr = (int)((bg >> 16) & 0xff);
@@ -171,6 +174,18 @@ static void nk_toaru_triangle(const struct nk_toaru *t, uint32_t *fb,
     }
 }
 
+static void nk_toaru_update_bounds(struct nk_toaru *t)
+{
+    struct decor_bounds bounds;
+    decor_get_bounds(t->win, &bounds);
+    t->off_x = bounds.left_width;
+    t->off_y = bounds.top_height;
+    t->width = t->win->width - bounds.width;
+    t->height = t->win->height - bounds.height;
+    if (t->width < 1) t->width = 1;
+    if (t->height < 1) t->height = 1;
+}
+
 static bool nk_toaru_init(struct nk_toaru *t, struct nk_context *ctx,
                           int requested_width, int requested_height)
 {
@@ -179,14 +194,20 @@ static bool nk_toaru_init(struct nk_toaru *t, struct nk_context *ctx,
     if (!t->yctx)
         return false;
 
-    int width = requested_width;
-    int height = requested_height;
+    /* Client-side decorations: reserve room for the title bar and borders,
+     * and let the decoration library handle moving and resizing. */
+    init_decorations();
+    struct decor_bounds dbounds;
+    decor_get_bounds(NULL, &dbounds);
+
+    int width = requested_width + dbounds.width;
+    int height = requested_height + dbounds.height;
     int max_width = (int)t->yctx->display_width - 80;
     int max_height = (int)t->yctx->display_height - 100;
     if (width > max_width) width = max_width;
     if (height > max_height) height = max_height;
-    if (width < 640) width = 640;
-    if (height < 480) height = 480;
+    if (width < 640 + dbounds.width) width = 640 + dbounds.width;
+    if (height < 480 + dbounds.height) height = 480 + dbounds.height;
 
     t->win = yutani_window_create(t->yctx, width, height);
     if (!t->win)
@@ -199,8 +220,7 @@ static bool nk_toaru_init(struct nk_toaru *t, struct nk_context *ctx,
     t->gfx = init_graphics_yutani_double_buffer(t->win);
     if (!t->gfx || !t->gfx->backbuffer)
         return false;
-    t->width = t->win->width;
-    t->height = t->win->height;
+    nk_toaru_update_bounds(t);
 
     nk_buffer_init_default(&t->cmds);
     nk_buffer_init_default(&t->vertices);
@@ -237,20 +257,25 @@ static void nk_toaru_resize(struct nk_toaru *t, int width, int height)
     (void)width;
     (void)height;
     reinit_graphics_yutani(t->gfx, t->win);
-    t->width = t->win->width;
-    t->height = t->win->height;
+    nk_toaru_update_bounds(t);
 }
 
 static void nk_toaru_render(struct nk_toaru *t, struct nk_context *ctx)
 {
     if (!t->gfx || !t->win)
         return;
-    int width = t->win->width;
-    int height = t->win->height;
-    uint32_t *fb = (uint32_t *)t->gfx->backbuffer;
-    if (!fb)
+    int win_width = t->win->width;
+    int win_height = t->win->height;
+    uint32_t *base = (uint32_t *)t->gfx->backbuffer;
+    if (!base)
         return;
-    memset(fb, 0, (size_t)width * (size_t)height * sizeof(uint32_t));
+    memset(base, 0, (size_t)win_width * (size_t)win_height * sizeof(uint32_t));
+
+    /* Nuklear draws in content coordinates; offset the framebuffer pointer so
+     * its (0,0) lands below the title bar and right of the left border. */
+    int width = t->width;
+    int height = t->height;
+    uint32_t *fb = base + (size_t)t->off_y * (size_t)win_width + (size_t)t->off_x;
 
     static const struct nk_draw_vertex_layout_element layout[] = {
         {NK_VERTEX_POSITION, NK_FORMAT_FLOAT,
@@ -292,7 +317,7 @@ static void nk_toaru_render(struct nk_toaru *t, struct nk_context *ctx)
             const struct nk_toaru_vertex *v0 = &vertices[offset[i + 0]];
             const struct nk_toaru_vertex *v1 = &vertices[offset[i + 1]];
             const struct nk_toaru_vertex *v2 = &vertices[offset[i + 2]];
-            nk_toaru_triangle(t, fb, width, height, clip, v0, v1, v2);
+            nk_toaru_triangle(t, fb, width, win_width, height, clip, v0, v1, v2);
         }
         offset += cmd->elem_count;
     }
@@ -301,6 +326,10 @@ static void nk_toaru_render(struct nk_toaru *t, struct nk_context *ctx)
     nk_buffer_clear(&t->cmds);
     nk_buffer_clear(&t->vertices);
     nk_buffer_clear(&t->elements);
+
+    /* Title bar and window borders (also marks the window as decorated, which
+     * is what lets the compositor drag and resize it). */
+    render_decorations(t->win, t->gfx, "Nuklear IDE");
 
     /* Render off-screen, then copy the finished frame into the shared window
      * buffer.  Drawing directly into the shared buffer makes the compositor

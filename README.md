@@ -169,8 +169,10 @@ Requires GLFW 3 development headers and OpenGL (`glfw-devel` +
 `PATH` or builds one from `_build/download/tinycc`; `TCC=/path/to/tcc`
 overrides it. TinyCC is C-only, so C++ files use `CXX` for the actual build.
 
-There is also a native **ToaruOS** build: Yutani window + a software Nuklear
+There is also a native **ToaruOS** build: a decorated, resizable Yutani window
+(with the standard title bar and close button) and a software Nuklear
 rasterizer, statically linked with ToaruOS libc and the Yutani client sources.
+Nuklear has no terminal backend, so there is no text-mode variant.
 `tests/run-toaru.sh` builds it and installs it as `/extras/nuklear-ide`; it
 can also be built standalone with `make -C nuklear-ide toaru`. The in-guest
 compiler is `/extras/tcc/bin/tcc`.
