@@ -24,6 +24,9 @@ Working:
 - the HTTP fetcher is a static libcurl 8.4.0 built against the ToaruOS
   sysroot; ToaruOS network setup (DHCP, DNS) and `http://` therefore work,
   e.g. `http://info.cern.ch/`
+- long pages scroll with **Page Up/Page Down**, the arrow keys (100 px) and
+  the **mouse wheel** (100 px per notch); the scroll offset is clamped to the
+  content extents
 
 Not supported in this configuration:
 
@@ -92,6 +95,7 @@ The frontend patch:
   arrives while `browser_window_create()` is still on the stack
 - casts bytes to `unsigned char` before UTF-8 decoding in the width,
   position, split and draw helpers
+- adds Page Up/Page Down and mouse-wheel scrolling to the browser window
 
 The ToaruOS patch adds the built-in PNG/JPEG decoders to the sprite loader for
 static builds; the stock code only finds them by `dlopen()`ing

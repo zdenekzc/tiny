@@ -1,6 +1,6 @@
 diff -ruN fe-a/gui.c fe-b/gui.c
 --- fe-a/gui.c	2026-04-01 15:36:42.000000000 +0200
-+++ fe-b/gui.c	2026-11-15 16:50:55.770738687 +0100
++++ fe-b/gui.c	2026-11-15 21:48:04.145637428 +0100
 @@ -258,9 +258,11 @@
  	}
  }
@@ -14,7 +14,24 @@ diff -ruN fe-a/gui.c fe-b/gui.c
  
  	menu_bar.x = gw->bounds.left_width;
  	menu_bar.y = gw->bounds.top_height;
-@@ -1012,11 +1014,14 @@
+@@ -991,6 +993,16 @@
+ 	struct gui_window * gw = hashmap_get(my_windows, (void*)(uintptr_t)me->wid);
+ 	if (!gw) return 0;
+ 
++	/* Mouse wheel scrolls the page. */
++	if (me->buttons & (YUTANI_MOUSE_SCROLL_UP | YUTANI_MOUSE_SCROLL_DOWN)) {
++		if (!inbounds(me, gw, 0)) return 0;
++		int dy = (me->buttons & YUTANI_MOUSE_SCROLL_UP) ? -100 : 100;
++		gui_window_set_scroll(gw, &(struct rect){
++			gw->scroll_x, gw->scroll_y + dy,
++			gw->scroll_x, gw->scroll_y + dy});
++		return 1;
++	}
++
+ 	browser_mouse_state mouse = 0;
+ 	if (me->command == YUTANI_MOUSE_EVENT_DOWN) {
+ 		if (!inbounds(me,gw,0)) return 0;
+@@ -1012,11 +1024,14 @@
  void toaru_mainloop(void) {
  
  	while (1) {
@@ -30,9 +47,30 @@ diff -ruN fe-a/gui.c fe-b/gui.c
  
  		if (index == 0) {
  			yutani_msg_t * m = yutani_poll(yctx);
+@@ -1068,6 +1083,20 @@
+ 										if (browser_window_key_press(gw->bw, NS_KEY_DOWN) == false)
+ 											gui_window_set_scroll(gw, &(struct rect){gw->scroll_x, gw->scroll_y + 100, gw->scroll_x, gw->scroll_y + 100});
+ 										break;
++									case KEY_PAGE_UP: {
++										int page = (int)gw->viewport_h - 20;
++										if (page < 40) page = 40;
++										if (browser_window_key_press(gw->bw, NS_KEY_PAGE_UP) == false)
++											gui_window_set_scroll(gw, &(struct rect){gw->scroll_x, gw->scroll_y - page, gw->scroll_x, gw->scroll_y - page});
++										break;
++									}
++									case KEY_PAGE_DOWN: {
++										int page = (int)gw->viewport_h - 20;
++										if (page < 40) page = 40;
++										if (browser_window_key_press(gw->bw, NS_KEY_PAGE_DOWN) == false)
++											gui_window_set_scroll(gw, &(struct rect){gw->scroll_x, gw->scroll_y + page, gw->scroll_x, gw->scroll_y + page});
++										break;
++									}
+ 									/* TODO input */
+ 									default:
+ 										if (ke->event.key) {
 diff -ruN fe-a/layout.c fe-b/layout.c
 --- fe-a/layout.c	2026-04-01 15:36:42.000000000 +0200
-+++ fe-b/layout.c	2026-11-15 17:47:33.822213143 +0100
++++ fe-b/layout.c	2026-11-15 19:18:50.768524789 +0100
 @@ -131,7 +131,7 @@
  
  	for (size_t i = 0; i < l; ++i) {
@@ -71,7 +109,7 @@ diff -ruN fe-a/layout.c fe-b/layout.c
  			x_offset += tt_xadvance_for_glyph(font, glyph) * font->scale;
 diff -ruN fe-a/main.c fe-b/main.c
 --- fe-a/main.c	2026-04-01 15:36:42.000000000 +0200
-+++ fe-b/main.c	2026-11-15 16:50:55.770921845 +0100
++++ fe-b/main.c	2026-11-15 19:18:50.768606717 +0100
 @@ -80,9 +80,10 @@
  	if (ret != NSERROR_OK) die("NetSurf operation table failed registration");
  	nslog_init(nslog_stream_configure, &argc, argv);
@@ -88,7 +126,7 @@ diff -ruN fe-a/main.c fe-b/main.c
  	ret = nsoption_init(set_defaults, &nsoptions, &nsoptions_default);
 diff -ruN fe-a/Makefile.tools fe-b/Makefile.tools
 --- fe-a/Makefile.tools	2026-04-01 15:36:42.000000000 +0200
-+++ fe-b/Makefile.tools	2026-11-15 16:50:55.771005431 +0100
++++ fe-b/Makefile.tools	2026-11-15 19:18:50.768672995 +0100
 @@ -1,16 +1,4 @@
 -# -*- mode: makefile-gmake -*-
 -##
