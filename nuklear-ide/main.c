@@ -3260,6 +3260,26 @@ static void toaru_feed_mouse(struct nk_context *ctx, struct nk_toaru *t,
         nk_input_scroll(ctx, nk_vec2(0, -1));
 }
 
+/* The simple decoration theme has a 1px border, which is hard to hit.  Treat
+ * a few pixels just inside the left, right and bottom edges (and the corners)
+ * as a resize grip so the window can be resized more comfortably. */
+static yutani_scale_direction_t toaru_resize_grip(struct nk_toaru *t,
+        struct yutani_msg_window_mouse_event *me)
+{
+    const int grip = 4;
+    if (me->new_y < t->off_y)
+        return SCALE_NONE;              /* title bar: decoration drag */
+    int left = me->new_x < grip;
+    int right = me->new_x >= t->win->width - grip;
+    int bottom = me->new_y >= t->win->height - grip;
+    if (bottom && right) return SCALE_DOWN_RIGHT;
+    if (bottom && left) return SCALE_DOWN_LEFT;
+    if (right) return SCALE_RIGHT;
+    if (left) return SCALE_LEFT;
+    if (bottom) return SCALE_DOWN;
+    return SCALE_NONE;
+}
+
 static void toaru_handle_message(struct app *app, struct nk_context *ctx,
                                  struct nk_toaru *t, yutani_msg_t *message)
 {
@@ -3287,6 +3307,14 @@ static void toaru_handle_message(struct app *app, struct nk_context *ctx,
                                     t->win->x + me->new_x,
                                     t->win->y + me->new_y);
             break;
+        }
+        if (decor == 0 && me->command == YUTANI_MOUSE_EVENT_DOWN &&
+            (me->buttons & YUTANI_MOUSE_BUTTON_LEFT)) {
+            yutani_scale_direction_t dir = toaru_resize_grip(t, me);
+            if (dir != SCALE_NONE) {
+                yutani_window_resize_start(t->yctx, t->win, dir);
+                break;
+            }
         }
 
         int x = me->new_x - t->off_x;

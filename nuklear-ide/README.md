@@ -194,7 +194,9 @@ má titulek „Nuklear IDE“, zavírací tlačítko, jde táhnout za titulkovou
 maximalizovat dvojklikem a měnit velikost tažením za okraj nebo roh. Po
 resize se obsah přepočítá (Nuklear dostane nové rozměry a framebuffer se
 posune pod titulkovou lištu). `File ▸ Quit` i křížek v titulku ukončí
-aplikaci.
+aplikaci. Protože má jednoduchý dekorační motiv jen 1px rám, bere IDE první
+4 px u levého, pravého a spodního okraje (a rohy) jako resize grip, takže se
+velikost mění pohodlněji.
 
 ## Poznámky k portování
 
