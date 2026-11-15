@@ -12,9 +12,10 @@
 #        - a tcc that runs INSIDE ToaruOS (_build/tcc-toaru/tcc-guest),
 #   4. downloads mini-commander and compiles it with the cross tcc (_output/mc),
 #   5. downloads the Nuklear header (browsing only),
-#   6. builds the native Nuklear IDE for ToaruOS (Yutani + software renderer)
-#      and _build/custom.iso via mc-toaru/mkiso.sh: ALL files (mc, tcc,
-#      examples, sources, the IDE, ...) are placed INSIDE the ramdisk
+#   6. builds the native Nuklear IDE for ToaruOS (Yutani + software renderer),
+#      builds NetSurf (netsurf-toaru/build.sh; reused when it already exists)
+#      and makes _build/custom.iso via mc-toaru/mkiso.sh: ALL files (mc, tcc,
+#      examples, sources, the IDE, NetSurf, ...) are placed INSIDE the ramdisk
 #      (ramdisk.igz) under /extras — no shared disk, no mounting, and / stays
 #      clean so the desktop icons are not cluttered (mc itself is /bin/mc).
 #   7. starts a HEADLESS (no window) control VM and verifies:
@@ -25,6 +26,8 @@
 #        - mini-commander starts, draws its panels with a highlighted current
 #          item, executes its command line on Enter and quits with F10 or a
 #          mouse click on the F10 footer,
+#        - NetSurf starts under the compositor, parses and lays out
+#          /extras/netsurf-test.html and survives the first redraw,
 #   8. starts a VISIBLE ToaruOS in QEMU:
 #        - visible boot: closes the welcome tutorial and opens the Terminal
 #          (QMP absolute pointer + sendkey; the graphical session is "local"),
@@ -45,6 +48,7 @@
 #   VISIBLE=0     no QEMU window (serial line only; automatic check still runs)
 #   HEADLESS=1    force headless boot even for the visible VM
 #   DEMO=0        skip the automatic control VM
+#   WITH_NETSURF=0  skip NetSurf (built on first use; on by default)
 #   MB=64         size of the (unused) blank IDE disk in MiB
 # ------------------------------------------------------------
 
@@ -65,6 +69,9 @@ SYSROOT="${BUILD_DIR}/tcc-toaru/lib"
 MC_SRC="${BUILD_DIR}/minicmd/mini-commander"
 MC_BIN="${REPO_ROOT}/_output/mc"
 NUKLEAR="${DOWNLOAD}/nuklear.h"
+NETSURF_BUILD="${REPO_ROOT}/netsurf-toaru/build.sh"
+NETSURF_DL="${BUILD_DOWNLOAD}"
+NETSURF_BIN="${NETSURF_DL}/netsurf-3.11/netsurf"
 PUSH="${BUILD_DIR}/push"
 SHARE_IMG="${BUILD_DIR}/share.img"
 SHARE_TEST="${BUILD_DIR}/share-test.img"
@@ -83,6 +90,7 @@ fi
 VISIBLE=${VISIBLE:-1}
 HEADLESS=${HEADLESS:-0}   # 1 = headless boot even when a QEMU window is open
 DEMO=${DEMO:-1}
+WITH_NETSURF=${WITH_NETSURF:-1}
 MB=${MB:-64}
 BOOT_ISO=""
 
@@ -220,6 +228,47 @@ else
     echo "note: Nuklear IDE for ToaruOS not built (missing sysroot or ToaruOS sources)"
 fi
 
+# NetSurf for ToaruOS (static Yutani browser).  The build cross-compiles
+# NetSurf and its support libraries and is expensive, so reuse an existing
+# binary; delete it (or run netsurf-toaru/build.sh) to force a rebuild.
+if [[ "${WITH_NETSURF}" == 1 ]]; then
+    if [[ ! -x "${NETSURF_BIN}" && -x "${NETSURF_BUILD}" &&
+          -f "${TOARU_SRC}/lib/yutani.c" && -f "${SYSROOT}/libc.a" ]]; then
+        # build.sh patches lib/graphics.c for static sprite decoding; use a
+        # working copy so the imported source tree stays untouched.
+        NETSURF_TOARU_SRC="${BUILD_DOWNLOAD}/toaruos-src"
+        if [[ ! -f "${NETSURF_TOARU_SRC}/lib/yutani.c" ]]; then
+            echo "== copying ToaruOS sources for the NetSurf build ..."
+            mkdir -p "${NETSURF_TOARU_SRC}"
+            cp -a "${TOARU_SRC}/." "${NETSURF_TOARU_SRC}/"
+        fi
+        echo "== building NetSurf for ToaruOS (this takes a while) ..."
+        NETSURF_DL="${NETSURF_DL}" TOARU_SRC="${NETSURF_TOARU_SRC}" \
+            "${NETSURF_BUILD}" || die "NetSurf for ToaruOS"
+    fi
+    if [[ -x "${NETSURF_BIN}" ]]; then
+        NETSURF_SRC="${NETSURF_DL}/netsurf-3.11"
+        echo "== preparing NetSurf for the ramdisk ..."
+        mkdir -p "${PUSH}/netsurf"
+        install -m 755 "${NETSURF_BIN}" "${PUSH}/netsurf/netsurf"
+        cp -a "${NETSURF_SRC}/resources/." "${PUSH}/netsurf/"
+        install -m 644 "${NETSURF_SRC}/frontends/toaru/res/en/Messages" \
+            "${PUSH}/netsurf/Messages"
+        cat > "${PUSH}/netsurf-test.html" <<'GUEST_EOF'
+<!DOCTYPE html>
+<html><head><title>NetSurf on ToaruOS</title></head>
+<body style="background:#ffffff;color:#102040;font-family:sans-serif">
+<h1>Hello from NetSurf!</h1>
+<p>This page is rendered by NetSurf 3.11 as a static ToaruOS executable.</p>
+<ul><li>HTML parsing</li><li>CSS layout</li><li>Yutani window</ul>
+<p style="color:#a00000">If you can read this, the port works.</p>
+</body></html>
+GUEST_EOF
+    else
+        echo "note: NetSurf for ToaruOS not built — /extras/netsurf will be missing"
+    fi
+fi
+
 # ToaruOS sources without .git, so they can be browsed in mc in the guest
 ( cd "${TOARU_SRC}" && tar cf - --exclude=.git . ) \
     | ( cd "${PUSH}/toaruos-src" && tar xf - )
@@ -275,6 +324,20 @@ Nuklear IDE for ToaruOS (Yutani window, static binary):
 The IDE starts with a writable demo in /tmp/nuklear-ide-demo; F5 compiles
 and runs it with /extras/tcc.  Use File > Open or pass another directory,
 for example: /extras/nuklear-ide /extras
+
+NetSurf (Yutani window, static binary; file:// pages only):
+
+    /extras/netsurf/netsurf file:///extras/netsurf-test.html
+
+In the graphical session DISPLAY is already set.  On the serial getty
+(headless boot) start the compositor first:
+
+    compositor &
+    export DISPLAY=compositor
+
+DISPLAY must be set before NetSurf starts — the fonts are fetched from the
+compositor's shared-memory font service.  Resources are in /extras/netsurf;
+there is no network fetcher, so http:// URLs will not load.
 
 /extras/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a,
 libtcc1.a), /extras/toaruos-src contains the sources of ToaruOS 2.3.2.
@@ -475,6 +538,52 @@ demo() {
     # keeps the plain panel background.
     if ! grep -aqF $'\033[0;30;46m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
         echo "  *** the current panel item is not highlighted"; rc=1
+    fi
+
+    # NetSurf: start the compositor (the serial getty has no graphical
+    # session), then load the test page with verbose logging.  Parsing, DOM
+    # and box-tree conversion show up in the log; the process still being
+    # alive afterwards proves that layout and the first redraw did not crash
+    # (the layout itself has no log message after it finishes).
+    if [[ -x "${PUSH}/netsurf/netsurf" ]]; then
+        "${VM}" send 'compositor &'
+        local ns_ready=0
+        for ns_i in $(seq 1 20); do
+            if "${VM}" log 4000 2>/dev/null | grep -aq 'Loading wallpaper'; then
+                ns_ready=1; break
+            fi
+            sleep 1
+        done
+        if [[ ${ns_ready} != 1 ]]; then
+            echo "  *** the compositor did not start"; rc=1
+        else
+            "${VM}" send 'export DISPLAY=compositor'
+            "${VM}" send '/extras/netsurf/netsurf -v file:///extras/netsurf-test.html &'
+            local ns_parsed=0
+            for ns_i in $(seq 1 30); do
+                if "${VM}" log 300000 2>/dev/null |
+                        grep -aq 'DOM to box conversion complete'; then
+                    ns_parsed=1; break
+                fi
+                sleep 1
+            done
+            if [[ ${ns_parsed} != 1 ]]; then
+                echo "  *** NetSurf did not parse the test page"; rc=1
+            else
+                "${VM}" send 'ps'
+                local ns_alive=0
+                for ns_i in $(seq 1 10); do
+                    if "${VM}" log 300000 2>/dev/null |
+                            grep -aqE '[0-9]+ +netsurf'; then
+                        ns_alive=1; break
+                    fi
+                    sleep 1
+                done
+                if [[ ${ns_alive} != 1 ]]; then
+                    echo "  *** NetSurf crashed during layout or redraw"; rc=1
+                fi
+            fi
+        fi
     fi
 
     "${VM}" stop > /dev/null 2>&1 || true
