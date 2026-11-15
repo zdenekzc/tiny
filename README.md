@@ -206,8 +206,12 @@ bootloader reading the compressed ramdisk from the emulated ATAPI CD through
 BIOS calls (a few MB/s); QEMU's direct boot loads it from the host file
 instead.  Note that direct boot needs `-append "root=/dev/ram0
 start=--headless"` and the `gettyargs` fw_cfg entry, otherwise userspace will
-not start the serial getty; QEMU's multiboot loader also provides no VBE
-information, so graphical boot should keep using the ISO path.
+not start the serial getty.  QEMU's multiboot loader provides no VBE
+information (`multiboot knows VBE. we don't`); this does not prevent a
+graphical boot on QEMU's stdvga, because ToaruOS's `vid=auto` modesets the
+emulated Bochs/QEMU VGA itself.  On video hardware without such a kernel
+driver the framebuffer has to come from the bootloader (VBE or UEFI GOP), so
+there the ISO/bootloader path remains the right choice.
 
 ## Optional environment variables
 
