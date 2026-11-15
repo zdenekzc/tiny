@@ -38,16 +38,17 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
    - verification programs `_build/tcc-toaru/hello` and `.../test`,
 4. clones mini-commander (`_build/minicmd/mini-commander`) and builds it with
    the cross compiler → `_output/mc` (`mc-toaru/build.sh mc`),
-5. downloads `nuklear.h` (for now only to be browsed in the guest; the
-   terminal backend is not part of the image),
-6. builds `_build/push/` and packs it into the ext2 image
-   **`_build/share.img`** (`mkshare.sh`): `/mc`, `/tcc_test`, `/tcc_test.c`,
-   `/tcc/{bin/tcc,include,lib}`, the sources from `tests/examples/*.c`,
-   `/gcc_hello` (built on the host by `gcc-toaru.sh`, when gcc is present),
-   `/toaruos-src`, `/nuklear.h`, `/compile_examples.sh`, `/README.txt`,
-7. boots a **headless verification VM** and checks that `/share/tcc_test`
-   runs, that tcc inside ToaruOS compiles and runs `/share/tcc_hello.c` and
-   every example, that `/share/gcc_hello` from the host gcc runs, and that
+5. downloads `nuklear.h` for browsing in the guest (the IDE uses its own
+   vendored copies in `nuklear-ide/_import/`),
+6. builds the native Nuklear IDE for ToaruOS (`_output/nuklear-ide-toaru`)
+   and packs the ramdisk payload into an ISO: `/extras/nuklear-ide`, `/mc`,
+   `/extras/tcc_test`, `/extras/tcc/{bin/tcc,include,lib}`, the sources from
+   `tests/examples/*.c`, `/extras/gcc_hello` (built on the host by
+   `gcc-toaru.sh`, when gcc is present), `/extras/toaruos-src`,
+   `/extras/nuklear.h`, `/extras/compile_examples.sh`, `/extras/README.txt`,
+7. boots a **headless verification VM** and checks that `/extras/tcc_test`
+   runs, that tcc inside ToaruOS compiles and runs `/extras/tcc_hello.c` and
+   every example, that `/extras/gcc_hello` from the host gcc runs, and that
    mini-commander draws its panels (with the current
    item highlighted), runs its command line on Enter, opens the viewer (F3)
    and editor (F4) and quits with F10 or a mouse click,
@@ -138,13 +139,13 @@ The control VM checks this route as well: `tests/run-toaru.sh` builds
 `tests/gcc/hello.c` with the host gcc into `/share/gcc_hello` and runs it.
 TinyCC remains the compiler that runs *inside* ToaruOS.
 
-## Nuklear IDE (Linux first)
+## Nuklear IDE (Linux and ToaruOS)
 
-`nuklear-ide/` is a small, self-contained IDE example built on Nuklear with a
-GLFW/OpenGL 2.1 backend. It runs on the host (not in ToaruOS) and is meant as a
-readable starting point: file tree, tabs, C/C++ syntax highlighting,
-asynchronous TinyCC compile/run, clickable compiler errors, a dark/light theme
-and an output pane.
+`nuklear-ide/` is a small, self-contained IDE example built on Nuklear:
+file tree, tabs, C/C++ syntax highlighting, asynchronous TinyCC compile/run,
+clickable compiler errors, a dark/light theme and an output pane.
+
+Linux uses GLFW + OpenGL 2.1:
 
 ```sh
 cd nuklear-ide
@@ -156,10 +157,16 @@ Requires GLFW 3 development headers and OpenGL (`glfw-devel` +
 `mesa-libGL-devel` on Fedora) and a host TinyCC. `make tcc` uses `tcc` from
 `PATH` or builds one from `_build/download/tinycc`; `TCC=/path/to/tcc`
 overrides it. TinyCC is C-only, so C++ files use `CXX` for the actual build.
+
+There is also a native **ToaruOS** build: Yutani window + a software Nuklear
+rasterizer, statically linked with ToaruOS libc and the Yutani client sources.
+`tests/run-toaru.sh` builds it and installs it as `/extras/nuklear-ide`; it
+can also be built standalone with `make -C nuklear-ide toaru`. The in-guest
+compiler is `/extras/tcc/bin/tcc`.
+
 Nuklear's headers stay in `nuklear-ide/_import/`; `./fetch-nuklear.sh`
 re-downloads them from a pinned upstream commit. See
-`nuklear-ide/README.md` for shortcuts, architecture and porting notes. The
-ToaruOS part of this repository is independent of it.
+`nuklear-ide/README.md` for shortcuts, architecture and porting notes.
 
 ## Controlling the VM
 
@@ -200,8 +207,10 @@ tiny/
 │   ├─ build.sh            # mc | probe | stage | clean (cross tcc)
 │   ├─ patches/mc-toaru.patch   # the single carrier of the mini-commander port
 │   └─ toaru/              # ncurses shim, compat layer, missing headers
-├─ nuklear-ide/            # small Nuklear IDE example (Linux, GLFW/OpenGL)
+├─ nuklear-ide/            # small Nuklear IDE (Linux + native ToaruOS)
 │   ├─ main.c              # UI, editor tabs, file tree, async build/run
+│   ├─ toaru_backend.h     # Yutani window + software Nuklear rasterizer
+│   ├─ toaru/build.sh      # static ToaruOS build (run-toaru installs it)
 │   ├─ demo/hello.c        # F5 demo program
 │   ├─ fetch-nuklear.sh    # re-download the headers from upstream
 │   └─ _import/            # downloaded nuklear.h + nuklear_glfw_gl2.h

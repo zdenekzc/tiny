@@ -34,7 +34,15 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef IDE_TOARU
+#include <poll.h>
+#include <toaru/yutani.h>
+#include <toaru/graphics.h>
+#include <toaru/kbd.h>
+#include <toaru/mouse.h>
+#else
 #include <GLFW/glfw3.h>
+#endif
 
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
@@ -46,11 +54,18 @@
 #define NK_IMPLEMENTATION
 #include "_import/nuklear.h"
 
+#ifdef IDE_TOARU
+#include "toaru_backend.h"
+#else
 #define NK_GLFW_GL2_IMPLEMENTATION
 #include "_import/nuklear_glfw_gl2.h"
+#endif
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
+#endif
+#ifndef INT_MAX
+#define INT_MAX 2147483647
 #endif
 
 #define MAX_TABS         16
@@ -174,6 +189,14 @@ struct app {
     int jump_line;
     bool jump_pending;
     bool focus_editor;
+
+    bool shortcut_new;
+    bool shortcut_open;
+    bool shortcut_save;
+    bool shortcut_save_as;
+    bool shortcut_close;
+    bool shortcut_quit;
+    bool shortcut_stop;
 
     bool should_quit;
 };
@@ -735,7 +758,7 @@ static void new_tab(struct app *app)
 {
     if (!tab_open(app, "", "", 0))
         return;
-    set_status(app, "New file — press F3 to choose a path before building");
+    set_status(app, "New file - press F3 to choose a path before building");
 }
 
 static bool save_tab_to(struct app *app, int index, const char *path)
@@ -861,7 +884,7 @@ static void request_quit(struct app *app)
 {
     if (any_dirty_tab(app)) {
         app->show_quit_confirm = true;
-        set_status(app, "Unsaved changes — confirm quitting");
+        set_status(app, "Unsaved changes - confirm quitting");
     } else {
         app->should_quit = true;
     }
@@ -876,6 +899,20 @@ static void close_child_fd(struct app *app)
     if (app->child_fd >= 0) {
         close(app->child_fd);
         app->child_fd = -1;
+    }
+}
+
+static void child_message(const char *fmt, ...)
+{
+    char buffer[512];
+    va_list ap;
+    va_start(ap, fmt);
+    int length = vsnprintf(buffer, sizeof(buffer), fmt, ap);
+    va_end(ap);
+    if (length > 0) {
+        size_t n = (size_t)length < sizeof(buffer) ? (size_t)length :
+                                                     sizeof(buffer) - 1;
+        (void)write(STDERR_FILENO, buffer, n);
     }
 }
 
@@ -912,12 +949,11 @@ static pid_t spawn_capture(struct app *app, char *const argv[], bool is_run)
         close(pipefd[0]);
         close(pipefd[1]);
         if (chdir(app->project) != 0) {
-            dprintf(STDERR_FILENO, "chdir(%s): %s\n", app->project,
-                    strerror(errno));
+            child_message("chdir(%s): %s\n", app->project, strerror(errno));
             _exit(127);
         }
         execvp(argv[0], argv);
-        dprintf(STDERR_FILENO, "exec %s: %s\n", argv[0], strerror(errno));
+        child_message("exec %s: %s\n", argv[0], strerror(errno));
         _exit(127);
     }
 
@@ -1002,6 +1038,22 @@ static bool find_tcc(char *out, size_t out_size)
         }
     }
 
+#ifdef IDE_TOARU
+    const char *guest_paths[] = {
+        "/extras/tcc/bin/tcc",
+        "/share/tcc/bin/tcc",
+        "/bin/tcc",
+        NULL
+    };
+    for (int i = 0; guest_paths[i]; ++i) {
+        if (is_executable(guest_paths[i])) {
+            char resolved[PATH_MAX];
+            if (realpath(guest_paths[i], resolved))
+                return snprintf(out, out_size, "%s", resolved) < (int)out_size;
+            return snprintf(out, out_size, "%s", guest_paths[i]) < (int)out_size;
+        }
+    }
+#else
     char self[PATH_MAX];
     ssize_t self_len = readlink("/proc/self/exe", self, sizeof(self) - 1);
     if (self_len > 0) {
@@ -1026,6 +1078,7 @@ static bool find_tcc(char *out, size_t out_size)
             }
         }
     }
+#endif
 
     char cwd[PATH_MAX];
     if (getcwd(cwd, sizeof(cwd))) {
@@ -1082,7 +1135,7 @@ static bool start_build(struct app *app, bool then_run)
         return false;
     }
     if (app->active < 0 || app->active >= app->tab_count) {
-        set_status(app, "Nothing to build — open a source file first");
+        set_status(app, "Nothing to build - open a source file first");
         return false;
     }
 
@@ -1118,7 +1171,7 @@ static bool start_build(struct app *app, bool then_run)
                 "  TCC=/path/to/tcc ./nuklear-ide.bin ...\n\n"
                 "In this repository you can build it with:\n"
                 "  make -C nuklear-ide tcc\n");
-            set_status(app, "TinyCC not found — set TCC or run make tcc");
+            set_status(app, "TinyCC not found - set TCC or run make tcc");
             return false;
         }
         has_tcc_B = tcc_needs_B(compiler, tcc_B, sizeof(tcc_B));
@@ -1165,8 +1218,8 @@ static bool start_build(struct app *app, bool then_run)
     app->run_after_build = then_run;
     app->build_state = BUILD_COMPILING;
     app->show_output = true;
-    set_status(app, then_run ? "Compiling (then running) %s …" :
-                               "Compiling %s …", base_name(tab->path));
+    set_status(app, then_run ? "Compiling (then running) %s ..." :
+                               "Compiling %s ...", base_name(tab->path));
 
     if (spawn_capture(app, argv, false) < 0) {
         app->build_state = BUILD_IDLE;
@@ -1185,7 +1238,7 @@ static void stop_child(struct app *app)
     app->stop_at = now_seconds();
     kill(-app->child, SIGTERM);
     kill(app->child, SIGTERM);
-    set_status(app, "Stopping…");
+    set_status(app, "Stopping...");
 }
 
 static void reap_child(struct app *app, int status)
@@ -1267,7 +1320,7 @@ static void pump_child(struct app *app)
         app->stop_requested = false;
     } else if (app->child_is_run && !app->stop_requested &&
                now - app->child_started > RUN_TIMEOUT) {
-        output_printf(app, "\n[timeout after %.0f s — sending SIGKILL]\n",
+        output_printf(app, "\n[timeout after %.0f s - sending SIGKILL]\n",
                       RUN_TIMEOUT);
         kill(-app->child, SIGKILL);
         kill(app->child, SIGKILL);
@@ -1524,13 +1577,13 @@ static void menu_bar(struct app *app, struct nk_context *ctx)
         nk_layout_row_dynamic(ctx, 22, 1);
         if (nk_menu_item_label(ctx, "New file             Ctrl+N", NK_TEXT_LEFT))
             new_tab(app);
-        if (nk_menu_item_label(ctx, "Open path…           Ctrl+O", NK_TEXT_LEFT)) {
+        if (nk_menu_item_label(ctx, "Open path...         Ctrl+O", NK_TEXT_LEFT)) {
             path_join(app->open_path, sizeof(app->open_path), app->project, "");
             app->show_open = true;
         }
         if (nk_menu_item_label(ctx, "Save                 Ctrl+S", NK_TEXT_LEFT))
             save_active(app);
-        if (nk_menu_item_label(ctx, "Save as…             F3", NK_TEXT_LEFT))
+        if (nk_menu_item_label(ctx, "Save as...           F3", NK_TEXT_LEFT))
             request_save_as(app);
         if (nk_menu_item_label(ctx, "Close tab            F8", NK_TEXT_LEFT))
             request_close_active(app);
@@ -1622,7 +1675,7 @@ static void toolbar(struct app *app, struct nk_context *ctx, float width)
         save_active(app);
 
     nk_layout_row_push(ctx, 100);
-    if (nk_button_label(ctx, "Save as…"))
+    if (nk_button_label(ctx, "Save as..."))
         request_save_as(app);
 
     nk_layout_row_push(ctx, 68);
@@ -1715,7 +1768,7 @@ static void draw_tabs(struct app *app, struct nk_context *ctx, float width)
 {
     if (app->tab_count == 0) {
         nk_layout_row_dynamic(ctx, 30, 1);
-        nk_label_colored(ctx, "No file open — use File ▸ New/Open or the Explorer",
+        nk_label_colored(ctx, "No file open - use File > New/Open or the Explorer",
                          NK_TEXT_LEFT, COLOR_MUTED);
         return;
     }
@@ -2226,7 +2279,7 @@ static void welcome(struct nk_context *ctx)
     nk_layout_row_dynamic(ctx, 22, 1);
     nk_label(ctx, "A small, immediate-mode editor + build/run front end.", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 22, 1);
-    nk_label_colored(ctx, "File ▸ New / Open    F5 Run    F7 Build    F9 Output",
+    nk_label_colored(ctx, "File > New / Open    F5 Run    F7 Build    F9 Output",
                      NK_TEXT_LEFT, COLOR_MUTED);
     nk_layout_row_dynamic(ctx, 22, 1);
     nk_label(ctx, "Pick a file in the Explorer on the left, or press Ctrl+O.",
@@ -2423,7 +2476,7 @@ static void status_bar(struct app *app, struct nk_context *ctx, float width)
         path = tab->untitled ? tab->title : tab->path;
     }
 
-    char cursor[64] = "Ln —, Col —";
+    char cursor[64] = "Ln -, Col -";
     if (app->active >= 0 && app->active < app->tab_count) {
         int line, column;
         cursor_line_column(&app->tabs[app->active], &line, &column);
@@ -2590,8 +2643,13 @@ static void popups(struct app *app, struct nk_context *ctx, int width,
             nk_layout_row_dynamic(ctx, 22, 1);
             nk_label(ctx, "Small immediate-mode IDE example.", NK_TEXT_LEFT);
             nk_layout_row_dynamic(ctx, 22, 1);
-            nk_label(ctx, "Nuklear • GLFW • OpenGL 2.1 • host cc/c++",
+#ifdef IDE_TOARU
+            nk_label(ctx, "Nuklear - Yutani - software renderer - guest tcc",
                      NK_TEXT_LEFT);
+#else
+            nk_label(ctx, "Nuklear - GLFW - OpenGL 2.1 - host cc/c++",
+                     NK_TEXT_LEFT);
+#endif
             nk_layout_row_dynamic(ctx, 22, 1);
             nk_label_colored(ctx, "F5 run  F7 build  F8 close tab  F9 output",
                              NK_TEXT_LEFT, COLOR_MUTED);
@@ -2659,24 +2717,26 @@ static void draw_ui(struct app *app, struct nk_context *ctx, int width,
 /* keyboard shortcuts                                                        */
 /* ------------------------------------------------------------------------- */
 
-static bool key_edge(GLFWwindow *window, int key, bool *previous)
+static void clear_shortcuts(struct app *app)
 {
-    bool down = glfwGetKey(window, key) == GLFW_PRESS;
-    bool edge = down && !*previous;
-    *previous = down;
-    return edge;
+    app->shortcut_new = false;
+    app->shortcut_open = false;
+    app->shortcut_save = false;
+    app->shortcut_save_as = false;
+    app->shortcut_close = false;
+    app->shortcut_quit = false;
+    app->shortcut_stop = false;
 }
 
-static void shortcuts(struct app *app, struct nk_context *ctx,
-                      GLFWwindow *window, bool *ctrl_n, bool *ctrl_o,
-                      bool *ctrl_s, bool *ctrl_w, bool *ctrl_q,
-                      bool *escape)
+static void shortcuts(struct app *app, struct nk_context *ctx)
 {
     bool modal = app->show_open || app->show_save_as ||
                  app->show_about || app->show_quit_confirm ||
                  app->show_close_confirm;
-    if (modal)
+    if (modal) {
+        clear_shortcuts(app);
         return;
+    }
 
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_F2))
         save_active(app);
@@ -2695,8 +2755,40 @@ static void shortcuts(struct app *app, struct nk_context *ctx,
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_F9))
         app->show_output = !app->show_output;
 
-    if (key_edge(window, GLFW_KEY_ESCAPE, escape))
+    if (app->shortcut_stop)
         stop_child(app);
+    if (app->shortcut_new)
+        new_tab(app);
+    if (app->shortcut_open) {
+        path_join(app->open_path, sizeof(app->open_path), app->project, "");
+        app->show_open = true;
+    }
+    if (app->shortcut_save)
+        save_active(app);
+    if (app->shortcut_save_as)
+        request_save_as(app);
+    if (app->shortcut_close)
+        request_close_active(app);
+    if (app->shortcut_quit)
+        request_quit(app);
+    clear_shortcuts(app);
+}
+
+#ifndef IDE_TOARU
+static bool key_edge(GLFWwindow *window, int key, bool *previous)
+{
+    bool down = glfwGetKey(window, key) == GLFW_PRESS;
+    bool edge = down && !*previous;
+    *previous = down;
+    return edge;
+}
+
+static void platform_poll_shortcuts(struct app *app, GLFWwindow *window,
+                                    bool *ctrl_n, bool *ctrl_o, bool *ctrl_s,
+                                    bool *ctrl_w, bool *ctrl_q, bool *escape)
+{
+    if (key_edge(window, GLFW_KEY_ESCAPE, escape))
+        app->shortcut_stop = true;
 
     bool ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
                 glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
@@ -2704,27 +2796,27 @@ static void shortcuts(struct app *app, struct nk_context *ctx,
                  glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
 
     if (ctrl && key_edge(window, GLFW_KEY_N, ctrl_n))
-        new_tab(app);
-    if (ctrl && key_edge(window, GLFW_KEY_O, ctrl_o)) {
-        path_join(app->open_path, sizeof(app->open_path), app->project, "");
-        app->show_open = true;
-    }
+        app->shortcut_new = true;
+    if (ctrl && key_edge(window, GLFW_KEY_O, ctrl_o))
+        app->shortcut_open = true;
     if (ctrl && key_edge(window, GLFW_KEY_S, ctrl_s)) {
         if (shift)
-            request_save_as(app);
+            app->shortcut_save_as = true;
         else
-            save_active(app);
+            app->shortcut_save = true;
     }
     if (ctrl && key_edge(window, GLFW_KEY_W, ctrl_w))
-        request_close_active(app);
+        app->shortcut_close = true;
     if (ctrl && key_edge(window, GLFW_KEY_Q, ctrl_q))
-        request_quit(app);
+        app->shortcut_quit = true;
 }
+#endif
 
 /* ------------------------------------------------------------------------- */
 /* lifecycle                                                                 */
 /* ------------------------------------------------------------------------- */
 
+#ifndef IDE_TOARU
 static const char *pick_font_path(void)
 {
     const char *env = getenv("IDE_FONT");
@@ -2769,6 +2861,8 @@ static void load_font(struct nk_context *ctx)
         nk_style_set_font(ctx, &font->handle);
 }
 
+#endif
+
 static bool app_init(struct app *app, int argc, char **argv)
 {
     memset(app, 0, sizeof(*app));
@@ -2810,7 +2904,26 @@ static bool app_init(struct app *app, int argc, char **argv)
             return false;
         }
     } else {
+#ifdef IDE_TOARU
+        static const char demo_source[] =
+            "#include <stdio.h>\n"
+            "\n"
+            "int main(void) {\n"
+            "    puts(\"Hello from Nuklear IDE on ToaruOS\");\n"
+            "    return 0;\n"
+            "}\n";
+        const char *demo_dir = "/tmp/nuklear-ide-demo";
+        char demo_file[PATH_MAX];
+        mkdir(demo_dir, 0755);
+        path_join(demo_file, sizeof(demo_file), demo_dir, "hello.c");
+        if (access(demo_file, F_OK) != 0)
+            write_whole_file(demo_file, demo_source, strlen(demo_source));
+        snprintf(app->project, sizeof(app->project), "%s", demo_dir);
+        if (access(demo_file, R_OK) == 0)
+            snprintf(start_file, sizeof(start_file), "%s", demo_file);
+#else
         snprintf(app->project, sizeof(app->project), "%s", cwd);
+#endif
     }
 
     char template[] = "/tmp/nuklear-ide-XXXXXX";
@@ -2819,7 +2932,7 @@ static bool app_init(struct app *app, int argc, char **argv)
         return false;
     }
     snprintf(app->build_dir, sizeof(app->build_dir), "%s", template);
-    set_status(app, "Ready — open a file from the Explorer");
+    set_status(app, "Ready - open a file from the Explorer");
 
     if (start_file[0])
         open_file(app, start_file);
@@ -2856,6 +2969,7 @@ static void app_cleanup(struct app *app)
     remove_build_dir(app->build_dir);
 }
 
+#ifndef IDE_TOARU
 static void glfw_error(int code, const char *description)
 {
     fprintf(stderr, "GLFW error %d: %s\n", code, description);
@@ -2903,8 +3017,9 @@ int main(int argc, char **argv)
 
         pump_child(&app);
         nk_glfw3_new_frame();
-        shortcuts(&app, ctx, window, &ctrl_n, &ctrl_o, &ctrl_s, &ctrl_w,
-                  &ctrl_q, &escape);
+        platform_poll_shortcuts(&app, window, &ctrl_n, &ctrl_o, &ctrl_s,
+                                &ctrl_w, &ctrl_q, &escape);
+        shortcuts(&app, ctx);
 
         int width = 0, height = 0;
         glfwGetWindowSize(window, &width, &height);
@@ -2917,11 +3032,11 @@ int main(int argc, char **argv)
         char title[PATH_MAX + 80];
         if (app.active >= 0 && app.active < app.tab_count) {
             struct tab *tab = &app.tabs[app.active];
-            snprintf(title, sizeof(title), "Nuklear IDE — %s%s",
+            snprintf(title, sizeof(title), "Nuklear IDE - %s%s",
                      tab->untitled ? tab->title : tab->path,
                      tab->dirty ? " *" : "");
         } else {
-            snprintf(title, sizeof(title), "Nuklear IDE — %s", app.project);
+            snprintf(title, sizeof(title), "Nuklear IDE - %s", app.project);
         }
         glfwSetWindowTitle(window, title);
 
@@ -2945,3 +3060,308 @@ int main(int argc, char **argv)
     app_cleanup(&app);
     return 0;
 }
+
+#endif
+
+#ifdef IDE_TOARU
+static bool toaru_ctrl(kbd_mod_t mods)
+{
+    return (mods & (KEY_MOD_LEFT_CTRL | KEY_MOD_RIGHT_CTRL)) != 0;
+}
+
+static bool toaru_shift(kbd_mod_t mods)
+{
+    return (mods & (KEY_MOD_LEFT_SHIFT | KEY_MOD_RIGHT_SHIFT)) != 0;
+}
+
+static bool toaru_alt(kbd_mod_t mods)
+{
+    return (mods & (KEY_MOD_LEFT_ALT | KEY_MOD_RIGHT_ALT)) != 0;
+}
+
+static void toaru_clipboard_copy(nk_handle userdata, const char *text, int length)
+{
+    struct nk_toaru *t = userdata.ptr;
+    if (!t || !text || length <= 0)
+        return;
+    char *copy = malloc((size_t)length + 1);
+    if (!copy)
+        return;
+    memcpy(copy, text, (size_t)length);
+    copy[length] = '\0';
+    yutani_set_clipboard(t->yctx, copy);
+    free(copy);
+}
+
+static void toaru_clipboard_paste(nk_handle userdata, struct nk_text_edit *edit)
+{
+    struct nk_toaru *t = userdata.ptr;
+    if (!t)
+        return;
+    yutani_special_request(t->yctx, t->win, YUTANI_SPECIAL_REQUEST_CLIPBOARD);
+    yutani_msg_t *message = yutani_wait_for(t->yctx, YUTANI_MSG_CLIPBOARD);
+    if (!message)
+        return;
+    struct yutani_msg_clipboard *clipboard = (void *)message->data;
+    if (clipboard->content[0] == '\002') {
+        int size = atoi(&clipboard->content[2]);
+        if (size > 0) {
+            FILE *file = yutani_open_clipboard(t->yctx);
+            if (file) {
+                char *text = malloc((size_t)size);
+                if (text) {
+                    size_t got = fread(text, 1, (size_t)size, file);
+                    if (got)
+                        nk_textedit_paste(edit, text, (int)got);
+                    free(text);
+                }
+                fclose(file);
+            }
+        }
+    } else if (clipboard->size) {
+        nk_textedit_paste(edit, clipboard->content, (int)clipboard->size);
+    }
+    free(message);
+}
+
+static void toaru_feed_key(struct app *app, struct nk_context *ctx,
+                           struct nk_toaru *t, struct yutani_msg_key_event *ke)
+{
+    (void)t;
+    kbd_key_t key = ke->event.keycode;
+    kbd_mod_t mods = ke->event.modifiers;
+    bool down = ke->event.action == KEY_ACTION_DOWN;
+    bool ctrl = toaru_ctrl(mods);
+    bool shift = toaru_shift(mods);
+    bool alt = toaru_alt(mods);
+
+    nk_input_key(ctx, NK_KEY_CTRL, ctrl);
+    nk_input_key(ctx, NK_KEY_SHIFT, shift);
+    nk_input_key(ctx, NK_KEY_ALT, alt);
+
+    if (key == KEY_ESCAPE) {
+        if (down)
+            app->shortcut_stop = true;
+        return;
+    }
+
+    if (ctrl) {
+        kbd_key_t lower = key;
+        if (lower >= 'A' && lower <= 'Z')
+            lower = lower - 'A' + 'a';
+
+        if (down) {
+            switch (lower) {
+            case 'n': app->shortcut_new = true; break;
+            case 'o': app->shortcut_open = true; break;
+            case 's': app->shortcut_save_as = shift;
+                      app->shortcut_save = !shift; break;
+            case 'w': app->shortcut_close = true; break;
+            case 'q': app->shortcut_quit = true; break;
+            default: break;
+            }
+        }
+
+        switch (lower) {
+        case 'a': nk_input_key(ctx, NK_KEY_TEXT_SELECT_ALL, down); return;
+        case 'c': nk_input_key(ctx, NK_KEY_COPY, down); return;
+        case 'x': nk_input_key(ctx, NK_KEY_CUT, down); return;
+        case 'v': nk_input_key(ctx, NK_KEY_PASTE, down); return;
+        case 'z':
+            nk_input_key(ctx, shift ? NK_KEY_TEXT_REDO : NK_KEY_TEXT_UNDO,
+                         down);
+            return;
+        case 'y':
+        case 'r': nk_input_key(ctx, NK_KEY_TEXT_REDO, down); return;
+        default: break;
+        }
+        if (lower >= 'a' && lower <= 'z')
+            return;
+    }
+
+    switch (key) {
+    case '\n':
+    case '\r':
+        nk_input_key(ctx, NK_KEY_ENTER, down);
+        return;
+    case '\t':
+        nk_input_key(ctx, NK_KEY_TAB, down);
+        return;
+    case KEY_BACKSPACE:
+        nk_input_key(ctx, NK_KEY_BACKSPACE, down);
+        return;
+    case KEY_DEL:
+        nk_input_key(ctx, NK_KEY_DEL, down);
+        return;
+    case KEY_ARROW_UP:
+        nk_input_key(ctx, NK_KEY_UP, down);
+        return;
+    case KEY_ARROW_DOWN:
+        nk_input_key(ctx, NK_KEY_DOWN, down);
+        return;
+    case KEY_ARROW_LEFT:
+        nk_input_key(ctx, ctrl ? NK_KEY_TEXT_WORD_LEFT : NK_KEY_LEFT, down);
+        return;
+    case KEY_ARROW_RIGHT:
+        nk_input_key(ctx, ctrl ? NK_KEY_TEXT_WORD_RIGHT : NK_KEY_RIGHT, down);
+        return;
+    case KEY_HOME:
+        nk_input_key(ctx, NK_KEY_TEXT_LINE_START, down);
+        nk_input_key(ctx, NK_KEY_SCROLL_START, down);
+        return;
+    case KEY_END:
+        nk_input_key(ctx, NK_KEY_TEXT_LINE_END, down);
+        nk_input_key(ctx, NK_KEY_SCROLL_END, down);
+        return;
+    case KEY_F1:  nk_input_key(ctx, NK_KEY_F1, down); return;
+    case KEY_F2:  nk_input_key(ctx, NK_KEY_F2, down); return;
+    case KEY_F3:  nk_input_key(ctx, NK_KEY_F3, down); return;
+    case KEY_F4:  nk_input_key(ctx, NK_KEY_F4, down); return;
+    case KEY_F5:  nk_input_key(ctx, NK_KEY_F5, down); return;
+    case KEY_F6:  nk_input_key(ctx, NK_KEY_F6, down); return;
+    case KEY_F7:  nk_input_key(ctx, NK_KEY_F7, down); return;
+    case KEY_F8:  nk_input_key(ctx, NK_KEY_F8, down); return;
+    case KEY_F9:  nk_input_key(ctx, NK_KEY_F9, down); return;
+    case KEY_F10: nk_input_key(ctx, NK_KEY_F10, down); return;
+    case KEY_F11: nk_input_key(ctx, NK_KEY_F11, down); return;
+    case KEY_F12: nk_input_key(ctx, NK_KEY_F12, down); return;
+    default:
+        break;
+    }
+
+    if (down && !ctrl && !alt && ke->event.key >= 32 && ke->event.key != 127)
+        nk_input_unicode(ctx, (unsigned int)ke->event.key);
+}
+
+static void toaru_feed_mouse(struct nk_context *ctx, struct nk_toaru *t,
+                             struct yutani_msg_window_mouse_event *me)
+{
+    t->mouse_x = me->new_x;
+    t->mouse_y = me->new_y;
+    t->mouse_buttons = me->buttons & (YUTANI_MOUSE_BUTTON_LEFT |
+                                      YUTANI_MOUSE_BUTTON_RIGHT |
+                                      YUTANI_MOUSE_BUTTON_MIDDLE);
+    nk_input_motion(ctx, me->new_x, me->new_y);
+    nk_input_button(ctx, NK_BUTTON_LEFT, me->new_x, me->new_y,
+                    (t->mouse_buttons & YUTANI_MOUSE_BUTTON_LEFT) != 0);
+    nk_input_button(ctx, NK_BUTTON_RIGHT, me->new_x, me->new_y,
+                    (t->mouse_buttons & YUTANI_MOUSE_BUTTON_RIGHT) != 0);
+    nk_input_button(ctx, NK_BUTTON_MIDDLE, me->new_x, me->new_y,
+                    (t->mouse_buttons & YUTANI_MOUSE_BUTTON_MIDDLE) != 0);
+
+    if (me->buttons & YUTANI_MOUSE_SCROLL_UP)
+        nk_input_scroll(ctx, nk_vec2(0, 1));
+    else if (me->buttons & YUTANI_MOUSE_SCROLL_DOWN)
+        nk_input_scroll(ctx, nk_vec2(0, -1));
+}
+
+static void toaru_handle_message(struct app *app, struct nk_context *ctx,
+                                 struct nk_toaru *t, yutani_msg_t *message)
+{
+    switch (message->type) {
+    case YUTANI_MSG_KEY_EVENT: {
+        struct yutani_msg_key_event *ke = (void *)message->data;
+        if (ke->wid == t->win->wid)
+            toaru_feed_key(app, ctx, t, ke);
+        break;
+    }
+    case YUTANI_MSG_WINDOW_MOUSE_EVENT: {
+        struct yutani_msg_window_mouse_event *me = (void *)message->data;
+        if (me->wid == t->win->wid)
+            toaru_feed_mouse(ctx, t, me);
+        break;
+    }
+    case YUTANI_MSG_RESIZE_OFFER: {
+        struct yutani_msg_window_resize *wr = (void *)message->data;
+        if (wr->wid == t->win->wid) {
+            yutani_window_resize_accept(t->yctx, t->win, wr->width, wr->height);
+            nk_toaru_resize(t, wr->width, wr->height);
+            yutani_window_resize_done(t->yctx, t->win);
+        }
+        break;
+    }
+    case YUTANI_MSG_WINDOW_FOCUS_CHANGE: {
+        struct yutani_msg_window_focus_change *wf = (void *)message->data;
+        if (wf->wid == t->win->wid)
+            t->win->focused = (uint8_t)wf->focused;
+        break;
+    }
+    case YUTANI_MSG_WINDOW_CLOSE:
+    case YUTANI_MSG_SESSION_END:
+        app->should_quit = true;
+        break;
+    default:
+        break;
+    }
+}
+
+int main(int argc, char **argv)
+{
+    struct app app;
+    if (!app_init(&app, argc, argv))
+        return 1;
+
+    struct nk_context ctx;
+    nk_init_default(&ctx, NULL);
+    style_apply(&ctx, app.light_mode);
+
+    struct nk_toaru backend;
+    if (!nk_toaru_init(&backend, &ctx, 1400, 900)) {
+        fprintf(stderr, "could not create the ToaruOS window\n");
+        nk_free(&ctx);
+        app_cleanup(&app);
+        return 1;
+    }
+    ctx.clip.copy = toaru_clipboard_copy;
+    ctx.clip.paste = toaru_clipboard_paste;
+    ctx.clip.userdata = nk_handle_ptr(&backend);
+
+    int yutani_fd = fileno(backend.yctx->sock);
+    while (!app.should_quit) {
+        nk_input_begin(&ctx);
+        nk_input_motion(&ctx, backend.mouse_x, backend.mouse_y);
+        nk_input_button(&ctx, NK_BUTTON_LEFT, backend.mouse_x,
+                        backend.mouse_y,
+                        (backend.mouse_buttons & YUTANI_MOUSE_BUTTON_LEFT) != 0);
+        nk_input_button(&ctx, NK_BUTTON_RIGHT, backend.mouse_x,
+                        backend.mouse_y,
+                        (backend.mouse_buttons & YUTANI_MOUSE_BUTTON_RIGHT) != 0);
+        nk_input_button(&ctx, NK_BUTTON_MIDDLE, backend.mouse_x,
+                        backend.mouse_y,
+                        (backend.mouse_buttons & YUTANI_MOUSE_BUTTON_MIDDLE) != 0);
+
+        struct pollfd fds[2];
+        fds[0].fd = yutani_fd;
+        fds[0].events = POLLIN;
+        fds[0].revents = 0;
+        int nfds = 1;
+        if (app.child_active && app.child_fd >= 0) {
+            fds[1].fd = app.child_fd;
+            fds[1].events = POLLIN;
+            fds[1].revents = 0;
+            nfds = 2;
+        }
+        int timeout = app.child_active ? 20 : 100;
+        int ready = poll(fds, (nfds_t)nfds, timeout);
+        if (ready > 0 && (fds[0].revents & POLLIN)) {
+            yutani_msg_t *message;
+            while ((message = yutani_poll_async(backend.yctx)) != NULL) {
+                toaru_handle_message(&app, &ctx, &backend, message);
+                free(message);
+            }
+        }
+
+        pump_child(&app);
+        nk_input_end(&ctx);
+        shortcuts(&app, &ctx);
+
+        draw_ui(&app, &ctx, backend.win->width, backend.win->height);
+        nk_toaru_render(&backend, &ctx);
+    }
+
+    nk_toaru_shutdown(&backend);
+    nk_free(&ctx);
+    app_cleanup(&app);
+    return 0;
+}
+#endif

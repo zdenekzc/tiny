@@ -12,10 +12,11 @@
 #        - a tcc that runs INSIDE ToaruOS (_build/tcc-toaru/tcc-guest),
 #   4. downloads mini-commander and compiles it with the cross tcc (_output/mc),
 #   5. downloads the Nuklear header (browsing only),
-#   6. builds _build/custom.iso via mc-toaru/mkiso.sh: ALL files (mc, tcc,
-#      examples, sources, ...) are placed INSIDE the ramdisk (ramdisk.igz)
-#      under /extras — no shared disk, no mounting, and / stays clean so the
-#      desktop icons are not cluttered (mc itself is /bin/mc).
+#   6. builds the native Nuklear IDE for ToaruOS (Yutani + software renderer)
+#      and _build/custom.iso via mc-toaru/mkiso.sh: ALL files (mc, tcc,
+#      examples, sources, the IDE, ...) are placed INSIDE the ramdisk
+#      (ramdisk.igz) under /extras — no shared disk, no mounting, and / stays
+#      clean so the desktop icons are not cluttered (mc itself is /bin/mc).
 #   7. starts a HEADLESS (no window) control VM and verifies:
 #        - /extras/tcc_test (program compiled by the cross tcc),
 #        - tcc inside ToaruOS compiles and runs /extras/tcc_hello.c,
@@ -207,8 +208,17 @@ else
     echo "note: gcc/ld not found — /gcc_hello will not be built"
 fi
 
-# Nuklear (for browsing only for now; the term backend is not part of the image)
+# Nuklear (for browsing; the old terminal backend is not part of the image)
 cp "${NUKLEAR}" "${PUSH}/nuklear.h"
+
+# Native Nuklear IDE for ToaruOS (Yutani + software renderer, statically linked)
+IDE_TOARU_BUILD="${REPO_ROOT}/nuklear-ide/toaru/build.sh"
+if [[ -x "${IDE_TOARU_BUILD}" && -f "${TOARU_SRC}/lib/yutani.c" && -f "${SYSROOT}/libc.a" ]]; then
+    echo "== building Nuklear IDE for ToaruOS ..."
+    "${IDE_TOARU_BUILD}" "${PUSH}/nuklear-ide" || die "Nuklear IDE for ToaruOS"
+else
+    echo "note: Nuklear IDE for ToaruOS not built (missing sysroot or ToaruOS sources)"
+fi
 
 # ToaruOS sources without .git, so they can be browsed in mc in the guest
 ( cd "${TOARU_SRC}" && tar cf - --exclude=.git . ) \
@@ -257,6 +267,14 @@ TinyCC inside ToaruOS:
 mini-commander:
 
     mc /            (also /bin/mc /)
+
+Nuklear IDE for ToaruOS (Yutani window, static binary):
+
+    /extras/nuklear-ide
+
+The IDE starts with a writable demo in /tmp/nuklear-ide-demo; F5 compiles
+and runs it with /extras/tcc.  Use File > Open or pass another directory,
+for example: /extras/nuklear-ide /extras
 
 /extras/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a,
 libtcc1.a), /extras/toaruos-src contains the sources of ToaruOS 2.3.2.
@@ -616,6 +634,7 @@ ${MC_NOTE}
 
 In the ToaruOS window open the Terminal and run:
 
+    /extras/nuklear-ide
     /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
     mc /extras     (mc is also installed as /bin/mc)
 

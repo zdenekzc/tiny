@@ -151,12 +151,50 @@ IDE automaticky přidá `-B<cesta>`.
 `.cxx` se proto zvýrazňují jako C++, ale pro překlad se použije `CXX` (výchozí
 `c++`); v Outputu je na to upozornění. C a hlavičky jdou přes TinyCC.
 
+## ToaruOS
+
+Stejné IDE se dá sestavit i jako **nativní statický program pro ToaruOS**.
+Zdrojáky jsou společné; `IDE_TOARU` přepne backend z GLFW/OpenGL na
+Yutani + vlastní software rasterizer Nuklear command bufferu.
+
+```sh
+./toaru/build.sh                 # -> _output/nuklear-ide-toaru
+# nebo
+make toaru
+```
+
+Build potřebuje sysroot z `./mktcc.sh` a strom ToaruOS 2.3.2:
+`_build/download/toaruos-src` (oba věci vytvoří `./tests/run-toaru.sh`).
+Výsledek je statický ELF, do kterého jsou přilinkované potřebné klientské
+knihovny Yutani (`lib/yutani.c`, `hashmap.c`, `list.c`, `pex.c`, `kbd.c`)
+a ToaruOS libc; za běhu tedy nepotřebuje žádné `.so` knihovny.
+
+`tests/run-toaru.sh` integruje IDE do ramdisku:
+
+```sh
+./tests/run-toaru.sh
+# v ToaruOS:
+/extras/nuklear-ide
+```
+
+Bez argumentu si IDE vytvoří zapisovatelný projekt
+`/tmp/nuklear-ide-demo` s `hello.c`. F5 ho přeloží pomocí
+`/extras/tcc/bin/tcc` a hned spustí. Jiný projekt lze otevřít například
+`/extras/nuklear-ide /extras` (soubory v `/extras` jsou z ramdisku jen pro
+čtení, takže ukládat je třeba jinam).
+
+Backend je v `toaru_backend.h`: vytvoří Yutani okno, přeloží Nuklear
+draw commands na trojúhelníky a rasterizuje je do 32bitového framebufferu
+okna. Nepoužívá OpenGL ani ToaruOS `libtoaru_graphics`; font je vestavěný
+Nuklear ProggyClean. Okno nemá klientské dekorace, takže se zavírá přes
+`File ▸ Quit` / `Ctrl+Q`; resize zprávy z compositoru fungují.
+
 ## Poznámky k portování
 
-Tohle je záměrně **linuxová první verze**. Backend je jediné místo, které ví
-o GLFW/OpenGL; zbytek aplikace kreslí jen přes Nuklear command buffer. Pro
-jiný operační systém (nebo pro ToaruOS) je potřeba dodat jiný Nuklear backend
-a upravit:
+Backend je jediné místo, které ví o platformě; zbytek aplikace kreslí jen
+přes Nuklear command buffer. Linux používá GLFW/OpenGL, ToaruOS Yutani a
+software rasterizer. Pro další systém je potřeba dodat třetí backend a
+upravit:
 
 1. vytvoření okna a vstupní události (myš/klávesy),
 2. `fork/exec` + pipe na překlad a spuštění,
@@ -164,9 +202,7 @@ a upravit:
 4. hledání TinyCC a cestu k jeho include/runtime souborům.
 
 Samotné obrazovky, layout, editor, syntax highlighting a stavová logika jsou
-na platformě nezávislé. Vestavěný font a OpenGL backend se na zařízení bez
-OpenGL nahradí software rendererem; Nuklear má k dispozici i
-command-buffer/software cestu.
+na platformě nezávislé.
 
 ## Omezení ukázky
 
@@ -174,6 +210,8 @@ command-buffer/software cestu.
 - žádný debugger ani terminál,
 - output panel nemá automatické scrollování na konec a nelze v něm
   označovat text myší (Copy zkopíruje celý výstup),
-- TinyCC neumí C++; C++ soubory se překládají přes `CXX`,
+- TinyCC neumí C++; C++ soubory se překládají přes `CXX` (v ToaruOS `CXX`
+  není, takže C++ build tam selže),
+- ToaruOS okno nemá klientské dekorace (zavírá se přes menu / Ctrl+Q),
 - undo historie se v Nuklearu resetuje při opětovném kliknutí do editoru,
 - je to ukázka a čitelný starting point, ne produkční IDE.

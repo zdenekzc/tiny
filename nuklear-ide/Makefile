@@ -16,7 +16,7 @@ TCC_SRC ?= ../_build/download/tinycc
 SOURCES := main.c
 HEADERS := _import/nuklear.h _import/nuklear_glfw_gl2.h
 
-.PHONY: all run tcc clean
+.PHONY: all run tcc toaru clean
 
 all: $(TARGET)
 
@@ -25,6 +25,9 @@ $(TARGET): $(SOURCES) $(HEADERS)
 
 run: $(TARGET) tcc
 	./$(TARGET) demo/hello.c
+
+toaru:
+	./toaru/build.sh
 
 # Build a host TinyCC from the tree that the ToaruOS setup already downloaded.
 # A system-wide tcc or TCC=/path/to/tcc is used instead when available.
