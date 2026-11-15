@@ -501,20 +501,23 @@ int doupdate(void)
 		return ERR;
 
 	for (y = 0; y < newscr->maxy && y < LINES; y++) {
-		int wrote = 0;
 		for (x = 0; x < newscr->maxx && x < COLS; x++) {
 			unsigned int nc, na, oc, oa;
 			cell_get(newscr, y, x, &nc, &na);
 			cell_get(curscr, y, x, &oc, &oa);
 			if (nc == oc && na == oa)
 				continue;
-			if (!wrote)
-				move_to(y, x);
+			/* A row can have several changed runs separated by unchanged
+			 * cells.  Skipping an unchanged cell also skips the cursor
+			 * movement, so every run must re-position first; move_to() is a
+			 * no-op when the cursor already happens to be there.  Without
+			 * this, spaces overwriting the tail of a shorter viewer line were
+			 * written into the middle of the line and stale characters stayed
+			 * on screen. */
+			move_to(y, x);
 			apply_attr(na);
 			out_utf8(nc ? nc : ' ');
 			phys_x++;
-			wrote = 1;
-			cell_get(newscr, y, x, &nc, &na);
 			curscr->ch[(size_t)y * (size_t)curscr->maxx + (size_t)x] = nc;
 			curscr->attr[(size_t)y * (size_t)curscr->maxx + (size_t)x] = na;
 		}
