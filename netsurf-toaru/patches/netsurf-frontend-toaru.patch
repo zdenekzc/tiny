@@ -1,6 +1,6 @@
 diff -ruN fe-a/gui.c fe-b/gui.c
---- fe-a/gui.c	2026-11-15 15:47:36.480080071 +0100
-+++ fe-b/gui.c	2026-11-15 16:47:42.611459078 +0100
+--- fe-a/gui.c	2026-04-01 15:36:42.000000000 +0200
++++ fe-b/gui.c	2026-11-15 16:50:55.770738687 +0100
 @@ -258,9 +258,11 @@
  	}
  }
@@ -30,9 +30,48 @@ diff -ruN fe-a/gui.c fe-b/gui.c
  
  		if (index == 0) {
  			yutani_msg_t * m = yutani_poll(yctx);
+diff -ruN fe-a/layout.c fe-b/layout.c
+--- fe-a/layout.c	2026-04-01 15:36:42.000000000 +0200
++++ fe-b/layout.c	2026-11-15 17:47:33.822213143 +0100
+@@ -131,7 +131,7 @@
+ 
+ 	for (size_t i = 0; i < l; ++i) {
+ 		if (s[i] == 0) continue;
+-		if (!decode(&istate, &cp, s[i])) {
++		if (!decode(&istate, &cp, (unsigned char)s[i])) {
+ 			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+ 			x_offset += tt_xadvance_for_glyph(font, glyph) * font->scale;
+ 		}
+@@ -173,7 +173,7 @@
+ 	size_t i = 0;
+ 	for (; i < l; ++i) {
+ 		if (s[i] == 0) continue;
+-		if (!decode(&istate, &cp, s[i])) {
++		if (!decode(&istate, &cp, (unsigned char)s[i])) {
+ 			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+ 			float new_x = tt_xadvance_for_glyph(font, glyph) * font->scale;
+ 
+@@ -213,7 +213,7 @@
+ 
+ 	for (size_t i = 0; i < l; ++i) {
+ 		if (s[i] == 0) continue;
+-		if (!decode(&istate, &cp, s[i])) {
++		if (!decode(&istate, &cp, (unsigned char)s[i])) {
+ 			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+ 			float new_x = tt_xadvance_for_glyph(font, glyph) * font->scale;
+ 
+@@ -248,7 +248,7 @@
+ 
+ 	for (size_t i = 0; i < l; ++i) {
+ 		if (s[i] == 0) continue;
+-		if (!decode(&istate, &cp, s[i])) {
++		if (!decode(&istate, &cp, (unsigned char)s[i])) {
+ 			unsigned int glyph = tt_glyph_for_codepoint(font, cp);
+ 			contour = tt_draw_glyph_into(contour,font,x_offset,y,glyph);
+ 			x_offset += tt_xadvance_for_glyph(font, glyph) * font->scale;
 diff -ruN fe-a/main.c fe-b/main.c
---- fe-a/main.c	2026-11-15 15:47:36.480080071 +0100
-+++ fe-b/main.c	2026-11-15 16:47:42.609459079 +0100
+--- fe-a/main.c	2026-04-01 15:36:42.000000000 +0200
++++ fe-b/main.c	2026-11-15 16:50:55.770921845 +0100
 @@ -80,9 +80,10 @@
  	if (ret != NSERROR_OK) die("NetSurf operation table failed registration");
  	nslog_init(nslog_stream_configure, &argc, argv);
@@ -48,8 +87,8 @@ diff -ruN fe-a/main.c fe-b/main.c
  	/* user options setup */
  	ret = nsoption_init(set_defaults, &nsoptions, &nsoptions_default);
 diff -ruN fe-a/Makefile.tools fe-b/Makefile.tools
---- fe-a/Makefile.tools	2026-11-15 15:47:36.480080071 +0100
-+++ fe-b/Makefile.tools	2026-11-15 16:01:41.813762919 +0100
+--- fe-a/Makefile.tools	2026-04-01 15:36:42.000000000 +0200
++++ fe-b/Makefile.tools	2026-11-15 16:50:55.771005431 +0100
 @@ -1,16 +1,4 @@
 -# -*- mode: makefile-gmake -*-
 -##

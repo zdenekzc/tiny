@@ -17,18 +17,33 @@ Working:
 - builds as a static ToaruOS ELF (`netsurf-3.11/netsurf`, ~12 MB)
 - starts, opens a Yutani window, renders the menu bar, navigation buttons and
   icons, URL bar, status bar and window decorations
-- fetches local files (`file:///test.html`) and reaches content creation
+- fetches local files (`file:///…`), parses HTML with the full libdom/libhubbub
+  stack, builds the box tree, lays the page out and renders text with the
+  default stylesheet, list markers and colours; the status bar ends in
+  “Done”
 
-Known problem:
+Not supported in this configuration:
 
-- the page area stays blank and the status line says “Loading”.  NetSurf
-  fetches the file, calls `content__init`, then `html_create()` fails almost
-  immediately and the browser loops on `about:query/fetcherror`.  The suspect
-  is `dom_hubbub_parser_create()` in `html_create_html_data()`.  This is where
-  the port currently stops.
+- `http://`/`https://` — the cURL fetcher is disabled, so only `file:`,
+  `data:` and the resource fetchers are available
+- images — the PNG/JPEG/GIF/BMP decoders are disabled in `Makefile.config`
+  (the ToaruOS sprite loader is patched for static builds, but no image
+  handler is compiled in)
+- JavaScript (Duktape) and SVG
 
-The frontend is unmodified apart from the patches below; the missing piece is
-in the NetSurf/libdom/libhubbub layer, not in the Yutani window code.
+Two non-obvious pieces were needed to get this far; both are handled by
+`build.sh` or the patches below:
+
+- libparserutils defaults to an **iconv**-based input filter.  ToaruOS ships
+  iconv stubs whose `iconv_open()` always fails, so every
+  `parserutils_inputstream_create()` (and thus every HTML document) failed and
+  the page stayed blank.  parserutils is now built with
+  `-DWITHOUT_ICONV_FILTER` and uses its built-in codecs.
+- the frontend’s local `tt_*stringn*` helpers passed a signed `char` to
+  ToaruOS’s `decode()` (which takes `uint32_t`).  A non-ASCII byte such as the
+  list bullet (U+2022) became `0xFFFFFFE2`, indexed the state table out of
+  bounds and crashed the browser during layout.  The helpers now cast to
+  `unsigned char`, matching ToaruOS’s own `tt_string_width()`.
 
 ## Files
 
@@ -61,6 +76,8 @@ The frontend patch:
 - uses the cross prefix’s `pkg-config` database
 - recomputes the page viewport on redraw and preserves an invalidation that
   arrives while `browser_window_create()` is still on the stack
+- casts bytes to `unsigned char` before UTF-8 decoding in the width,
+  position, split and draw helpers
 
 The ToaruOS patch adds the built-in PNG/JPEG decoders to the sprite loader for
 static builds; the stock code only finds them by `dlopen()`ing
@@ -87,14 +104,21 @@ Set `SKIP_DEPS=1` to reuse an already built prefix.
 
 ## Running under ToaruOS
 
-Pack the binary and the NetSurf resources, copy them into the guest and start
-the compositor first:
+Pack the binary and the NetSurf resources into `/extras/netsurf` (the binary,
+`default.css`, `internal.css`, `quirks.css`, `adblock.css`, the `Messages`
+file and the `en/`… resource directories), start the compositor and set
+`DISPLAY` **before** starting NetSurf:
 
 ```sh
 compositor &
 export DISPLAY=compositor
-/extras/netsurf/netsurf file:///test.html
+/extras/netsurf/netsurf file:///extras/test.html
 ```
+
+`DISPLAY` is essential: ToaruOS fonts are requested from the compositor’s
+shared-memory font service as `sys.$DISPLAY.fonts.sans-serif`.  Without it
+`tt_font_from_shm()` returns NULL while the menu/decorations libraries are
+initialised and NetSurf crashes before the window appears.
 
 The `file://` fetcher needs no network support.  HTML rendering for `http://`
 would additionally require the cURL-based fetcher, which is not enabled in
@@ -106,6 +130,7 @@ this configuration.
   IDE port uses the in-guest TinyCC instead.
 - `NETSURF_LOG_LEVEL` can be raised in the build to get more detail; the
   frontend accepts `-v` for verbose logging to stderr.
-- The current test binaries also carried temporary `fprintf` tracing in
-  `gui.c`/`main.c` and in ToaruOS `button.c`/`decorations.c`; those prints are
-  not part of the patches.
+- The frontend sources and the local ToaruOS checkout contain a few stray
+  `fprintf` debug prints (upstream in `main.c`/`gui.c`, and in
+  `button.c`/`decorations.c` of the checkout); they do not come from the
+  patches.

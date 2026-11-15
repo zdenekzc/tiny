@@ -124,6 +124,21 @@ if [[ ${SKIP_DEPS:-0} != 1 ]]; then
         [[ -d $DEPS/$t ]] || tar xz -C "$DEPS" -f "$DEPS/$t.tar.gz"
     done
 
+    # libparserutils defaults to an iconv-based input filter.  ToaruOS only
+    # has iconv stubs (iconv_open() always fails with EINVAL), which makes
+    # every parserutils_inputstream_create() fail and, with it, HTML content
+    # creation (dom_hubbub_parser_create()).  Use parserutils' built-in
+    # codecs instead, as its Makefile.config suggests.
+    pu_conf="$DEPS/libparserutils-0.2.5/Makefile.config"
+    grep -q '^CFLAGS.*WITHOUT_ICONV_FILTER' "$pu_conf" ||
+        echo 'CFLAGS := $(CFLAGS) -DWITHOUT_ICONV_FILTER' >> "$pu_conf"
+
+    # libdom builds an optional expat-driven XML binding by default.  NetSurf
+    # parses HTML through the hubbub binding and does not need it; expat is
+    # not available in the ToaruOS sysroot.
+    ld_conf="$DEPS/libdom-0.4.2/Makefile.config"
+    sed -i 's/^WITH_EXPAT_BINDING.*/WITH_EXPAT_BINDING := no/' "$ld_conf"
+
     echo "== building gperf (host tool)"
     if [[ ! -x $PREFIX/bin/gperf ]]; then
         (cd "$DEPS/gperf-3.1" &&

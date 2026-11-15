@@ -22,6 +22,9 @@ GCCINC=$(gcc -print-file-name=include)
 case "$1" in
   -dumpmachine) echo x86_64-pc-toaru; exit 0 ;;
   -dumpfullversion|-dumpversion) echo 10.3.0; exit 0 ;;
+  # The NetSurf buildsystem identifies the compiler with these two queries;
+  # answer them from the host gcc so it sees a GCC toolchain.
+  -dumpspecs|--version) exec gcc "$@" ;;
 esac
 
 have_c=0
