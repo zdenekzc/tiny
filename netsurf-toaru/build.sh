@@ -12,11 +12,13 @@
 #   - host gcc, GNU ld, python3, curl, make, perl
 #
 # The script downloads NetSurf 3.11, the toaruos/netsurf-frontend-toaru
-# frontend and the NetSurf support libraries into _build/download/netsurf-deps
-# unless they are already cached there.
+# frontend and the NetSurf support libraries.  The downloaded tarballs are
+# cached in _import/download (so they survive deleting _build); the sources
+# are unpacked and built under _build/download.
 #
 # Environment overrides:
-#   NETSURF_DL       download directory      (default _build/download)
+#   NETSURF_DL       build/download dir      (default _build/download)
+#   NETSURF_CACHE    tarball cache           (default _import/download)
 #   NETSURF_DEPS     dependency build dir    (default $NETSURF_DL/netsurf-deps)
 #   NETSURF_PREFIX   cross install prefix    (default _build/netsurf-prefix)
 #   TOARU_SYSROOT    ToaruOS sysroot         (default _build/tcc-toaru/lib)
@@ -29,7 +31,9 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TOP=$(cd "$HERE/.." && pwd)
 
 DL=${NETSURF_DL:-$TOP/_build/download}
+CACHE=${NETSURF_CACHE:-$TOP/_import/download}
 DEPS=${NETSURF_DEPS:-$DL/netsurf-deps}
+DEPS_CACHE=$CACHE/netsurf-deps
 SRC=${NETSURF_SRC:-$DL/netsurf-3.11}
 PREFIX=${NETSURF_PREFIX:-$TOP/_build/netsurf-prefix}
 SYS=${TOARU_SYSROOT:-$TOP/_build/tcc-toaru/lib}
@@ -54,8 +58,16 @@ command -v make >/dev/null || die "missing make"
 command -v perl >/dev/null || die "missing perl"
 
 fetch() {
-    local url=$1 out=$2
+    local url=$1 out=$2 legacy=${3:-}
     [[ -f $out ]] && return 0
+    # An older version of this script kept the tarballs next to the build
+    # trees; move such a file into the cache instead of downloading it again.
+    if [[ -n $legacy && -f $legacy ]]; then
+        echo "== moving $legacy to $out"
+        mkdir -p "$(dirname "$out")"
+        mv "$legacy" "$out"
+        return 0
+    fi
     echo "== downloading $url"
     mkdir -p "$(dirname "$out")"
     curl -L --fail --silent --show-error -o "$out" "$url"
@@ -66,7 +78,8 @@ export NETSURF_PREFIX=$PREFIX
 export PKG_CONFIG_LIBDIR=$PREFIX/lib/pkgconfig
 export PATH=$PREFIX/bin:$PATH
 
-mkdir -p "$DEPS" "$PREFIX/lib" "$PREFIX/include" "$PREFIX/lib/pkgconfig"
+mkdir -p "$DL" "$DEPS" "$CACHE" "$DEPS_CACHE" \
+    "$PREFIX/lib" "$PREFIX/include" "$PREFIX/lib/pkgconfig"
 
 # NetSurf is linked with explicit startup objects; libc's main.o (which runs
 # _libc_init) must precede the Toaru library constructors.  It is also needed
@@ -85,16 +98,17 @@ fi
 echo "== unpacking NetSurf $NS_VER"
 rm -rf "$SRC"
 fetch "https://download.netsurf-browser.org/netsurf/releases/source/netsurf-$NS_VER-src.tar.gz" \
-    "$DL/netsurf-$NS_VER-src.tar.gz"
-tar xz -C "$DL" -f "$DL/netsurf-$NS_VER-src.tar.gz"
+    "$CACHE/netsurf-$NS_VER-src.tar.gz" "$DL/netsurf-$NS_VER-src.tar.gz"
+tar xz -C "$DL" -f "$CACHE/netsurf-$NS_VER-src.tar.gz"
 [[ -d $SRC ]] || die "NetSurf source did not unpack into $SRC"
 (cd "$SRC" && patch -p1 --batch < "$HERE/patches/netsurf-$NS_VER.patch")
 
 echo "== unpacking the ToaruOS frontend"
 rm -rf "$DEPS/netsurf-frontend-toaru" "$DEPS/netsurf-frontend-toaru-$FE_REV"
+FETAR=netsurf-frontend-toaru-$FE_REV.tar.gz
 fetch "https://github.com/toaruos/netsurf-frontend-toaru/archive/$FE_REV.tar.gz" \
-    "$DEPS/netsurf-frontend-toaru-$FE_REV.tar.gz"
-tar xz -C "$DEPS" -f "$DEPS/netsurf-frontend-toaru-$FE_REV.tar.gz"
+    "$DEPS_CACHE/$FETAR" "$DEPS/$FETAR"
+tar xz -C "$DEPS" -f "$DEPS_CACHE/$FETAR"
 mv "$DEPS/netsurf-frontend-toaru-$FE_REV" "$DEPS/netsurf-frontend-toaru"
 (cd "$DEPS/netsurf-frontend-toaru" && \
     patch -p1 --batch < "$HERE/patches/netsurf-frontend-toaru.patch")
@@ -112,27 +126,27 @@ fi
 
 if [[ ${SKIP_DEPS:-0} != 1 ]]; then
     fetch "https://download.netsurf-browser.org/libs/releases/buildsystem-1.10.tar.gz" \
-        "$DEPS/buildsystem-1.10.tar.gz"
-    fetch "https://ftp.gnu.org/gnu/gperf/gperf-3.1.tar.gz" "$DEPS/gperf-3.1.tar.gz"
+        "$DEPS_CACHE/buildsystem-1.10.tar.gz" "$DEPS/buildsystem-1.10.tar.gz"
+    fetch "https://ftp.gnu.org/gnu/gperf/gperf-3.1.tar.gz" "$DEPS_CACHE/gperf-3.1.tar.gz" "$DEPS/gperf-3.1.tar.gz"
     fetch "https://download.netsurf-browser.org/libs/releases/libwapcaplet-0.4.3-src.tar.gz" \
-        "$DEPS/libwapcaplet-0.4.3.tar.gz"
+        "$DEPS_CACHE/libwapcaplet-0.4.3.tar.gz" "$DEPS/libwapcaplet-0.4.3.tar.gz"
     fetch "https://download.netsurf-browser.org/libs/releases/libparserutils-0.2.5-src.tar.gz" \
-        "$DEPS/libparserutils-0.2.5.tar.gz"
+        "$DEPS_CACHE/libparserutils-0.2.5.tar.gz" "$DEPS/libparserutils-0.2.5.tar.gz"
     fetch "https://download.netsurf-browser.org/libs/releases/libhubbub-0.3.8-src.tar.gz" \
-        "$DEPS/libhubbub-0.3.8.tar.gz"
+        "$DEPS_CACHE/libhubbub-0.3.8.tar.gz" "$DEPS/libhubbub-0.3.8.tar.gz"
     fetch "https://download.netsurf-browser.org/libs/releases/libcss-0.9.2-src.tar.gz" \
-        "$DEPS/libcss-0.9.2.tar.gz"
+        "$DEPS_CACHE/libcss-0.9.2.tar.gz" "$DEPS/libcss-0.9.2.tar.gz"
     fetch "https://download.netsurf-browser.org/libs/releases/libdom-0.4.2-src.tar.gz" \
-        "$DEPS/libdom-0.4.2.tar.gz"
+        "$DEPS_CACHE/libdom-0.4.2.tar.gz" "$DEPS/libdom-0.4.2.tar.gz"
     fetch "https://download.netsurf-browser.org/libs/releases/libnsutils-0.1.1-src.tar.gz" \
-        "$DEPS/libnsutils-0.1.1.tar.gz"
-    fetch "https://zlib.net/fossils/zlib-1.3.1.tar.gz" "$DEPS/zlib-1.3.1.tar.gz"
-    fetch "https://curl.se/download/curl-8.4.0.tar.gz" "$DEPS/curl-8.4.0.tar.gz"
+        "$DEPS_CACHE/libnsutils-0.1.1.tar.gz" "$DEPS/libnsutils-0.1.1.tar.gz"
+    fetch "https://zlib.net/fossils/zlib-1.3.1.tar.gz" "$DEPS_CACHE/zlib-1.3.1.tar.gz" "$DEPS/zlib-1.3.1.tar.gz"
+    fetch "https://curl.se/download/curl-8.4.0.tar.gz" "$DEPS_CACHE/curl-8.4.0.tar.gz" "$DEPS/curl-8.4.0.tar.gz"
 
     for t in buildsystem-1.10 gperf-3.1 libwapcaplet-0.4.3 libparserutils-0.2.5 \
              libhubbub-0.3.8 libcss-0.9.2 libdom-0.4.2 libnsutils-0.1.1 \
              zlib-1.3.1 curl-8.4.0; do
-        [[ -d $DEPS/$t ]] || tar xz -C "$DEPS" -f "$DEPS/$t.tar.gz"
+        [[ -d $DEPS/$t ]] || tar xz -C "$DEPS" -f "$DEPS_CACHE/$t.tar.gz"
     done
 
     # libparserutils defaults to an iconv-based input filter.  ToaruOS only

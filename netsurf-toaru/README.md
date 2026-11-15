@@ -110,9 +110,12 @@ Prerequisites:
 ./build.sh
 ```
 
-The script downloads NetSurf and the support libraries on first use
-(`_build/download/netsurf-deps`) and installs the cross-built dependencies into
-`_build/netsurf-prefix`.  Output: `_build/download/netsurf-3.11/netsurf`.
+The script downloads NetSurf and the support libraries on first use.  The
+tarballs are cached in `_import/download` (`_import/download/netsurf-deps`),
+the sources are unpacked and built in `_build/download/netsurf-deps`, and the
+cross-built dependencies are installed into `_build/netsurf-prefix`.  Output:
+`_build/download/netsurf-3.11/netsurf`.  Deleting `_build/` therefore does not
+force the tarballs to be downloaded again.
 
 Set `SKIP_DEPS=1` to reuse an already built prefix.
 

@@ -3,7 +3,7 @@
 #   _build/toaru-lib/       crt0.o crti.o crtn.o libc.a (from /lib of the ToaruOS base system)
 #   _build/toaru-include/   ToaruOS /usr/include headers
 #
-#   ./mklibc.sh                 from _build/download/toaruos-2.3.2.iso
+#   ./mklibc.sh                 from _import/download/image.iso
 #   ISO=/path ./mklibc.sh
 #
 # The files are directly in the ISO (no package from msk): ISO 9660 => fat.img (FAT12) =>

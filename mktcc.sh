@@ -8,7 +8,10 @@
 #   _build/tcc-toaru/tcc-guest              tcc itself as an ELF for running in ToaruOS
 #
 #   ./mktcc.sh              patches the clone, compiles, prepares the sysroot, verifies both images
-#   ./mktcc.sh -p           before that deletes _build/download/tinycc and does a git clone
+#   ./mktcc.sh -p           before that deletes the clones and downloads TinyCC again
+#
+# The download is a git clone cached in _import/download/tinycc; the build uses
+# a copy in _build/download/tinycc so the patches never touch the cache.
 #
 # Why a custom build instead of configure/make:
 #   * there is no make nor configure in the guest (that also applies to building tcc inside
@@ -54,6 +57,8 @@ set -euo pipefail
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 B=$DIR/_build
+IMPORT=$DIR/_import/download
+CLONE=$IMPORT/tinycc
 SRC=$B/download/tinycc
 GEN=$B/gen
 OUT=$B/tcc-toaru
@@ -68,13 +73,17 @@ bad() { echo "  ***  $*"; NOK=$((NOK+1)); }
 
 if [[ ${1:-} == -p ]]; then
     echo "refreshing the clone from repo.or.cz ..."
-    rm -rf "$SRC"
+    rm -rf "$SRC" "$CLONE"
 fi
 
 if [[ ! -d $SRC ]]; then
-    echo "downloading TinyCC (repo.or.cz/tinycc) ..."
+    if [[ ! -d $CLONE ]]; then
+        echo "downloading TinyCC (repo.or.cz/tinycc) ..."
+        mkdir -p "$IMPORT"
+        git clone --depth 50 https://repo.or.cz/tinycc.git "$CLONE" > /dev/null || die "git clone"
+    fi
     mkdir -p "$B/download"
-    git clone --depth 50 https://repo.or.cz/tinycc.git "$SRC" > /dev/null || die "git clone"
+    cp -a "$CLONE" "$SRC"
 fi
 git -C "$SRC" rev-parse -q --verify HEAD > /dev/null || die "$SRC is not a git clone"
 

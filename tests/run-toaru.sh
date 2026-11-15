@@ -67,22 +67,26 @@ TCC_GUEST="${BUILD_DIR}/tcc-toaru/tcc-guest"
 TEST_BIN="${BUILD_DIR}/tcc-toaru/test"
 SYSROOT="${BUILD_DIR}/tcc-toaru/lib"
 MC_SRC="${BUILD_DIR}/minicmd/mini-commander"
+MC_IMPORT="${IMPORT_DIR}/mini-commander"
 MC_BIN="${REPO_ROOT}/_output/mc"
 NUKLEAR="${DOWNLOAD}/nuklear.h"
 NETSURF_BUILD="${REPO_ROOT}/netsurf-toaru/build.sh"
 NETSURF_DL="${BUILD_DOWNLOAD}"
+NETSURF_CACHE="${IMPORT_DOWNLOAD}"
 NETSURF_BIN="${NETSURF_DL}/netsurf-3.11/netsurf"
 PUSH="${BUILD_DIR}/push"
 SHARE_IMG="${BUILD_DIR}/share.img"
 SHARE_TEST="${BUILD_DIR}/share-test.img"
 VM="${REPO_ROOT}/toaru-vm.sh"
 
-# If cached imports exist, copy them into the build tree before building
-if [[ -d "${IMPORT_DOWNLOAD}/tinycc" ]]; then
+# If cached imports exist and the build tree is gone, seed it from _import.
+# (Never copy over an existing tree: git's pack files are read-only, so a
+# repeated cp would fail.)
+if [[ -d "${IMPORT_DOWNLOAD}/tinycc" && ! -d "${BUILD_DIR}/download/tinycc" ]]; then
     mkdir -p "${BUILD_DIR}/download"
     cp -a "${IMPORT_DOWNLOAD}/tinycc" "${BUILD_DIR}/download/"
 fi
-if [[ -d "${IMPORT_DIR}/mini-commander" ]]; then
+if [[ -d "${IMPORT_DIR}/mini-commander" && ! -d "${BUILD_DIR}/minicmd/mini-commander" ]]; then
     mkdir -p "${BUILD_DIR}/minicmd"
     cp -a "${IMPORT_DIR}/mini-commander" "${BUILD_DIR}/minicmd/"
 fi
@@ -131,18 +135,7 @@ if [[ ! -f "${ISO}" ]]; then
         fi
     fi
     mv "${ISO}.part" "${ISO}"
-# Cache ISO in build dir
-mkdir -p "${BUILD_DIR}/download"
-cp -a "${ISO}" "${BUILD_DIR}/download/"
-# Also copy to name expected by mktcc.sh
-cp -a "${ISO}" "${BUILD_DIR}/download/toaruos-2.3.2.iso"
 fi
-# Ensure ISO is available in build directory for tools expecting the old name
-mkdir -p "${BUILD_DIR}/download"
-# Copy the image (may already exist) to the generic name used by mklibc.sh
-cp -a "${ISO}" "${BUILD_DIR}/download/"
-# Also copy to the historic toaruos-2.3.2.iso name expected by older scripts
-cp -a "${ISO}" "${BUILD_DIR}/download/toaruos-2.3.2.iso"
 
 # ------------------------------------------------------- 2) ToaruOS sources
 if [[ ! -d "${TOARU_SRC}" ]]; then
@@ -163,10 +156,14 @@ fi
 
 # ------------------------------------------------------ 4) mini-commander
 if [[ ! -d "${MC_SRC}" ]]; then
-    echo "== downloading mini-commander ..."
+    if [[ ! -d "${MC_IMPORT}" ]]; then
+        echo "== downloading mini-commander ..."
+        mkdir -p "${IMPORT_DIR}"
+        git clone --depth 1 https://github.com/Tomas-M/mini-commander.git "${MC_IMPORT}" \
+            || die "git clone mini-commander"
+    fi
     mkdir -p "$(dirname "${MC_SRC}")"
-    git clone --depth 1 https://github.com/Tomas-M/mini-commander.git "${MC_SRC}" \
-        || die "git clone mini-commander"
+    cp -a "${MC_IMPORT}" "${MC_SRC}"
 fi
 if [[ ! -x "${MC_BIN}" ]]; then
     echo "== building mini-commander ..."
@@ -243,7 +240,8 @@ if [[ "${WITH_NETSURF}" == 1 ]]; then
             cp -a "${TOARU_SRC}/." "${NETSURF_TOARU_SRC}/"
         fi
         echo "== building NetSurf for ToaruOS (this takes a while) ..."
-        NETSURF_DL="${NETSURF_DL}" TOARU_SRC="${NETSURF_TOARU_SRC}" \
+        NETSURF_DL="${NETSURF_DL}" NETSURF_CACHE="${NETSURF_CACHE}" \
+            TOARU_SRC="${NETSURF_TOARU_SRC}" \
             "${NETSURF_BUILD}" || die "NetSurf for ToaruOS"
     fi
     if [[ -x "${NETSURF_BIN}" ]]; then

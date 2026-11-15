@@ -29,7 +29,16 @@
 set -u
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-ISO=${ISO:-${DIR}/_build/download/toaruos-2.3.2.iso}
+# The ISO is downloaded into _import/download by tests/run-toaru.sh; keep
+# accepting the old _build/download copy for existing workspaces.
+if [[ -z ${ISO:-} ]]; then
+    for f in "${DIR}/_import/download/image.iso" \
+             "${DIR}/_build/download/toaruos-2.3.2.iso" \
+             "${DIR}/_build/download/image.iso"; do
+        [[ -f $f ]] && { ISO=$f; break; }
+    done
+    ISO=${ISO:-${DIR}/_import/download/image.iso}
+fi
 SHARE=${SHARE:-${DIR}/_build/share.img}
 WORK=${WORK:-${DIR}/_build/work}
 RAM=${RAM:-1024}

@@ -16,8 +16,10 @@ automatically (see "Inside ToaruOS" below if you start the VM by hand). The
 serial line is logged in as `root@livecd`; the graphical session as `local`
 (password `local`).
 
-Nothing under `_build/` or `_output/` is irreplaceable: both can be deleted at
-any time and `run-toaru.sh` will download and build everything again.
+Nothing under `_build/`, `_output/` or `_import/` is irreplaceable: they can be
+deleted at any time and `run-toaru.sh` will download and build everything
+again.  `_import/` holds the downloads (ISO, source clones, tarballs), so
+deleting only `_build/` does not force anything to be downloaded again.
 
 ---
 
@@ -26,20 +28,22 @@ any time and `run-toaru.sh` will download and build everything again.
 `tests/run-toaru.sh` performs these steps (only when needed — anything already
 built in `_build/` or `_output/` is not downloaded or rebuilt):
 
-1. downloads `toaruos-2.3.2.iso` into `_build/download/`,
-2. clones the ToaruOS sources (tag `v2.3.2`) into `_build/download/toaruos-src`
+1. downloads `image.iso` (ToaruOS 2.3.2) into `_import/download/`,
+2. clones the ToaruOS sources (tag `v2.3.2`) into `_import/download/toaruos-src`
    (copied to the guest only so they can be browsed in `mc`),
-3. runs `mktcc.sh`, which builds two things:
+3. runs `mktcc.sh`, which clones TinyCC into `_import/download/tinycc` and
+   builds (from a copy in `_build/download/tinycc`) two things:
    - **the host cross compiler**
      `_build/tcc-toaru/bin/x86_64-toaru-tcc` + sysroot `_build/tcc-toaru/lib`
      (`libc.a`, `crt0.o`, `crti.o`, `crtn.o`, `libtcc1.a`, `include/`),
    - **tcc that runs inside ToaruOS**
      `_build/tcc-toaru/tcc-guest` (ToaruOS ELF, `CONFIG_TCCDIR=/share/tcc`),
    - verification programs `_build/tcc-toaru/hello` and `.../test`,
-4. clones mini-commander (`_build/minicmd/mini-commander`) and builds it with
-   the cross compiler → `_output/mc` (`mc-toaru/build.sh mc`),
-5. downloads `nuklear.h` for browsing in the guest (the IDE uses its own
-   vendored copies in `nuklear-ide/_import/`),
+4. clones mini-commander into `_import/mini-commander`, builds the copy in
+   `_build/minicmd/mini-commander` with the cross compiler → `_output/mc`
+   (`mc-toaru/build.sh mc`),
+5. downloads `nuklear.h` into `_import/download/` for browsing in the guest
+   (the IDE uses its own vendored copies in `nuklear-ide/_import/`),
 6. builds the native Nuklear IDE for ToaruOS (`_output/nuklear-ide-toaru`)
    and packs the ramdisk payload into an ISO: `/extras/nuklear-ide`, `/mc`,
    `/extras/tcc_test`, `/extras/tcc/{bin/tcc,include,lib}`, the sources from
@@ -220,8 +224,11 @@ tiny/
 ├─ toaru-vm.sh             # start/stop/send/log/status/mon
 ├─ toaru-elfpad.py         # ELF format check for the ToaruOS loader
 ├─ toaruos-ext2-sparse-bug.md  # ext2 sparse-file bug report (upstream is archived)
-├─ _build/                 # downloaded material and artifacts (safe to delete)
-│   ├─ download/           # ISO, ToaruOS sources, tinycc, nuklear.h
+├─ _import/                # downloads: ISO, sources, clones, tarballs (safe to delete)
+│   ├─ download/           # image.iso, toaruos-src, tinycc, nuklear.h, netsurf*
+│   └─ mini-commander/     # unmodified mini-commander clone
+├─ _build/                 # build trees and artifacts (safe to delete)
+│   ├─ download/           # extracted sources and dependency build trees
 │   ├─ tcc-toaru/          # cross tcc, sysroot, tcc-guest, test programs
 │   ├─ push/               # shared-disk contents before packing
 │   ├─ share.img           # finished ext2 disk (mounted as /dev/hda in the guest)
@@ -234,7 +241,7 @@ tiny/
 └─ README.md
 ```
 
-`_build/` and `_output/` can be deleted at any time; `user/` **cannot** — its
+`_import/`, `_build/` and `_output/` can be deleted at any time; `user/` **cannot** — its
 contents are copied into the root of the shared disk on every run (and
 override built-in files of the same name). Directories starting with an
 underscore are treated as disposable, which is why user data belongs in
