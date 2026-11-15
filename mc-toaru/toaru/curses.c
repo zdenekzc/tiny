@@ -1089,9 +1089,14 @@ int wattron(WINDOW *win, attr_t a)
 	if (!win)
 		return ERR;
 	/* A color pair replaces the previous one (ncurses allows only one pair
-	 * at a time); other attributes are added.  mc relies on this when it
-	 * picks a row color and then the highlight color for the active item. */
-	win->bgattr = (win->bgattr & ~A_COLOR) | (unsigned int)a;
+	 * at a time); other attributes are ADDED on top of what is already set.
+	 * The previous version rebuilt bgattr from scratch, so a later
+	 * wattron(win, A_BOLD) silently dropped the color pair chosen earlier —
+	 * directory and executable rows then rendered bold on the default
+	 * background instead of their colors. */
+	if (a & A_COLOR)
+		win->bgattr = (win->bgattr & ~A_COLOR) | ((unsigned int)a & A_COLOR);
+	win->bgattr |= (unsigned int)a & ~A_COLOR;
 	return OK;
 }
 
