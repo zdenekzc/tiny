@@ -68,6 +68,16 @@ export PATH=$PREFIX/bin:$PATH
 
 mkdir -p "$DEPS" "$PREFIX/lib" "$PREFIX/include" "$PREFIX/lib/pkgconfig"
 
+# NetSurf is linked with explicit startup objects; libc's main.o (which runs
+# _libc_init) must precede the Toaru library constructors.  It is also needed
+# by the configure probes of the dependencies below (zlib, libcurl), so create
+# it before anything is built.
+if [[ ! -f $PREFIX/lib/libc-main.o ]]; then
+    tmp=$(mktemp -d)
+    (cd "$tmp" && ar x "$SYS/libc.a" main.o && cp main.o "$PREFIX/lib/libc-main.o")
+    rm -rf "$tmp"
+fi
+
 ###############################################################################
 # sources
 ###############################################################################
@@ -117,10 +127,11 @@ if [[ ${SKIP_DEPS:-0} != 1 ]]; then
     fetch "https://download.netsurf-browser.org/libs/releases/libnsutils-0.1.1-src.tar.gz" \
         "$DEPS/libnsutils-0.1.1.tar.gz"
     fetch "https://zlib.net/fossils/zlib-1.3.1.tar.gz" "$DEPS/zlib-1.3.1.tar.gz"
+    fetch "https://curl.se/download/curl-8.4.0.tar.gz" "$DEPS/curl-8.4.0.tar.gz"
 
     for t in buildsystem-1.10 gperf-3.1 libwapcaplet-0.4.3 libparserutils-0.2.5 \
              libhubbub-0.3.8 libcss-0.9.2 libdom-0.4.2 libnsutils-0.1.1 \
-             zlib-1.3.1; do
+             zlib-1.3.1 curl-8.4.0; do
         [[ -d $DEPS/$t ]] || tar xz -C "$DEPS" -f "$DEPS/$t.tar.gz"
     done
 
@@ -171,6 +182,44 @@ if [[ ${SKIP_DEPS:-0} != 1 ]]; then
                 ../configure --prefix="$PREFIX" >/dev/null &&
             make -j"$JOBS" >/dev/null && make install >/dev/null)
     fi
+
+    # libcurl for NetSurf's HTTP fetcher.  Plain HTTP only: there is no TLS
+    # stack on ToaruOS.  The build is reduced to the HTTP protocol and uses
+    # libcurl's own gethostbyname() resolver because ToaruOS's getaddrinfo()
+    # ignores the service argument (the port would stay 0).
+    echo "== building curl (HTTP only, no TLS)"
+    if [[ ! -f $PREFIX/lib/libcurl.a ]]; then
+        rm -rf "$DEPS/curl-8.4.0/build-toaru"
+        mkdir -p "$DEPS/curl-8.4.0/build-toaru"
+        (cd "$DEPS/curl-8.4.0/build-toaru" &&
+            CC="$TOOL/gcc-toaru.sh" AR="$TOOL/ar-toaru.sh" RANLIB=ranlib \
+            ../configure \
+                --host=x86_64-unknown-linux-gnu --build=x86_64-linux-gnu \
+                --prefix="$PREFIX" \
+                --disable-shared --enable-static \
+                --disable-threaded-resolver --disable-pthreads --disable-ipv6 \
+                --without-ssl --without-gnutls --without-mbedtls \
+                --without-wolfssl --without-bearssl --without-rustls \
+                --without-libpsl --without-libidn2 --without-brotli \
+                --without-zstd --without-zlib --without-nghttp2 \
+                --without-nghttp3 --without-libssh2 --without-gssapi \
+                --disable-ldap --disable-ldaps --disable-ftp --disable-file \
+                --disable-rtsp --disable-dict --disable-telnet --disable-tftp \
+                --disable-pop3 --disable-imap --disable-smtp --disable-gopher \
+                --disable-mqtt --disable-smb --disable-aws --disable-alt-svc \
+                --disable-hsts --disable-websockets --disable-ntlm \
+                --disable-ntlm-wb \
+                ac_cv_func_inet_pton=no ac_cv_func_inet_ntop=no \
+                ac_cv_func_gai_strerror=no ac_cv_func_gethostbyaddr=no \
+                ac_cv_func_getservbyname=no ac_cv_func_select=no \
+                ac_cv_func_pthread_create=no \
+                curl_disallow_getaddrinfo=yes \
+                >/dev/null &&
+            make -j"$JOBS" -C include install >/dev/null &&
+            make -j"$JOBS" -C lib >/dev/null &&
+            make -C lib install >/dev/null &&
+            make install-pkgconfigDATA >/dev/null)
+    fi
 fi
 
 ###############################################################################
@@ -195,14 +244,6 @@ rm -f "$PREFIX/lib/libtoaru_all.a"
 for lib in menu yutani decorations button text graphics hashmap list; do
     ln -sf libtoaru_all.a "$PREFIX/lib/libtoaru_$lib.a"
 done
-
-# NetSurf is linked with explicit startup objects; libc's main.o (which runs
-# _libc_init) must precede the Toaru library constructors.
-if [[ ! -f $PREFIX/lib/libc-main.o ]]; then
-    tmp=$(mktemp -d)
-    (cd "$tmp" && ar x "$SYS/libc.a" main.o && cp main.o "$PREFIX/lib/libc-main.o")
-    rm -rf "$tmp"
-fi
 
 ###############################################################################
 # NetSurf

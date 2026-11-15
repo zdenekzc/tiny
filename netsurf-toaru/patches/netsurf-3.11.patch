@@ -14,7 +14,7 @@ diff -ruN core-a/Makefile.config core-b/Makefile.config
 --- core-a/Makefile.config	1970-01-01 01:00:00.000000000 +0100
 +++ core-b/Makefile.config	2026-11-15 16:01:41.834762909 +0100
 @@ -0,0 +1,16 @@
-+NETSURF_USE_CURL := NO
++NETSURF_USE_CURL := YES
 +NETSURF_USE_OPENSSL := NO
 +NETSURF_USE_JPEG := NO
 +NETSURF_USE_JPEGXL := NO

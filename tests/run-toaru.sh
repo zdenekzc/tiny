@@ -325,9 +325,10 @@ The IDE starts with a writable demo in /tmp/nuklear-ide-demo; F5 compiles
 and runs it with /extras/tcc.  Use File > Open or pass another directory,
 for example: /extras/nuklear-ide /extras
 
-NetSurf (Yutani window, static binary; file:// pages only):
+NetSurf (Yutani window, static binary; file:// and plain http:// pages):
 
     /extras/netsurf/netsurf file:///extras/netsurf-test.html
+    /extras/netsurf/netsurf http://info.cern.ch/
 
 In the graphical session DISPLAY is already set.  On the serial getty
 (headless boot) start the compositor first:
@@ -336,8 +337,9 @@ In the graphical session DISPLAY is already set.  On the serial getty
     export DISPLAY=compositor
 
 DISPLAY must be set before NetSurf starts — the fonts are fetched from the
-compositor's shared-memory font service.  Resources are in /extras/netsurf;
-there is no network fetcher, so http:// URLs will not load.
+compositor's shared-memory font service.  Resources are in /extras/netsurf.
+The QEMU user-mode network gives the guest DHCP and DNS, so http:// works;
+https:// does not, because ToaruOS has no TLS stack.
 
 /extras/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a,
 libtcc1.a), /extras/toaruos-src contains the sources of ToaruOS 2.3.2.

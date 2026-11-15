@@ -14,24 +14,28 @@ dependencies are the compositor and the shared font/menu services.
 
 Working:
 
-- builds as a static ToaruOS ELF (`netsurf-3.11/netsurf`, ~12 MB)
+- builds as a static ToaruOS ELF (`netsurf-3.11/netsurf`, ~13 MB)
 - starts, opens a Yutani window, renders the menu bar, navigation buttons and
   icons, URL bar, status bar and window decorations
-- fetches local files (`file:///…`), parses HTML with the full libdom/libhubbub
-  stack, builds the box tree, lays the page out and renders text with the
-  default stylesheet, list markers and colours; the status bar ends in
-  “Done”
+- fetches local files (`file:///…`) and **plain HTTP** pages, parses HTML with
+  the full libdom/libhubbub stack, builds the box tree, lays the page out and
+  renders text with the default stylesheet, list markers, links and colours;
+  the status bar ends in “Done”
+- the HTTP fetcher is a static libcurl 8.4.0 built against the ToaruOS
+  sysroot; ToaruOS network setup (DHCP, DNS) and `http://` therefore work,
+  e.g. `http://info.cern.ch/`
 
 Not supported in this configuration:
 
-- `http://`/`https://` — the cURL fetcher is disabled, so only `file:`,
-  `data:` and the resource fetchers are available
+- `https://` — ToaruOS has no TLS stack (even its own `fetch` reports “no tls
+  backend”), so libcurl is built without any SSL backend and only the HTTP
+  protocol.  HTTPS would need mbedTLS/BearSSL/OpenSSL ported first.
 - images — the PNG/JPEG/GIF/BMP decoders are disabled in `Makefile.config`
   (the ToaruOS sprite loader is patched for static builds, but no image
   handler is compiled in)
 - JavaScript (Duktape) and SVG
 
-Two non-obvious pieces were needed to get this far; both are handled by
+Non-obvious pieces that were needed to get this far; all are handled by
 `build.sh` or the patches below:
 
 - libparserutils defaults to an **iconv**-based input filter.  ToaruOS ships
@@ -44,6 +48,15 @@ Two non-obvious pieces were needed to get this far; both are handled by
   list bullet (U+2022) became `0xFFFFFFE2`, indexed the state table out of
   bounds and crashed the browser during layout.  The helpers now cast to
   `unsigned char`, matching ToaruOS’s own `tt_string_width()`.
+- libcurl is configured with `curl_disallow_getaddrinfo=yes`.  ToaruOS’s
+  `getaddrinfo()` ignores the service argument and does not set the port in
+  `sockaddr_in`, so libcurl uses its `gethostbyname()` resolver instead.  Its
+  bundled `inet_pton()`/`inet_ntop()` implementations are used for the same
+  reason (ToaruOS lacks them).
+- ToaruOS has the `fd_set` type but no `select()` and no `FD_*` macros; they
+  are provided by the `sys/select.h` shim, which the compiler driver
+  force-includes.  `AF_UNIX` (used only as an ignored argument to curl’s
+  socketpair fallback) comes from the `sys/socket.h` shim.
 
 ## Files
 
@@ -52,8 +65,9 @@ build.sh                 end-to-end build
 toolchain/gcc-toaru.sh   host gcc -> static ToaruOS ELF linker driver
 toolchain/ar-toaru.sh    host ar wrapper
 toolchain/compat.h       limits/PRI* fallbacks for the freestanding build
-toolchain/include/       small header shims (sys/select.h, netinet/in.h,
-                         curl/curl.h for the disabled cURL fetcher)
+toolchain/include/       small header shims (sys/select.h with FD_* macros,
+                         sys/socket.h with AF_UNIX, netinet/in.h, curl/curl.h
+                         wrapping the real header)
 patches/
   netsurf-3.11.patch             core build config and ToaruOS portability
   netsurf-frontend-toaru.patch   frontend resource path and redraw fixes
@@ -113,6 +127,7 @@ file and the `en/`… resource directories), start the compositor and set
 compositor &
 export DISPLAY=compositor
 /extras/netsurf/netsurf file:///extras/test.html
+/extras/netsurf/netsurf http://info.cern.ch/
 ```
 
 `DISPLAY` is essential: ToaruOS fonts are requested from the compositor’s
@@ -120,9 +135,11 @@ shared-memory font service as `sys.$DISPLAY.fonts.sans-serif`.  Without it
 `tt_font_from_shm()` returns NULL while the menu/decorations libraries are
 initialised and NetSurf crashes before the window appears.
 
-The `file://` fetcher needs no network support.  HTML rendering for `http://`
-would additionally require the cURL-based fetcher, which is not enabled in
-this configuration.
+For `http://` the guest needs working DHCP/DNS.  With the QEMU user-mode
+network used by `toaru-vm.sh`, startup DHCP gives the guest `10.0.2.15` and
+name resolution through `10.0.2.3`, so no manual network setup is needed.
+`https://` URLs fail with `Protocol "https" not supported` — that is the
+missing TLS stack, not a network problem.
 
 ## Notes
 
