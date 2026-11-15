@@ -141,19 +141,19 @@ done
 # ------------------------------------------- 5b. tcc that runs INSIDE ToaruOS
 # The cross compiler is not portable: it needs Linux.  That is why tcc.c is
 # compiled once more, this time as an image for ToaruOS.  The result is shipped in
-# /tcc (inside the ramdisk, run-toaru.sh) and is run in the guest:
+# /extras/tcc (inside the ramdisk, run-toaru.sh) and is run in the guest:
 #
-#   /tcc/bin/tcc -o /hello /hello.c
+#   /extras/tcc/bin/tcc -o /hello /hello.c
 #
-# -DCONFIG_TCCDIR="/tcc" is the default path, so inside the guest there is no
-# need for -B; files are looked up in /tcc (include/, lib/).  The cross sysroot
+# -DCONFIG_TCCDIR="/extras/tcc" is the default path, so inside the guest there is no
+# need for -B; files are looked up in /extras/tcc (include/, lib/).  The cross sysroot
 # has the libraries directly in the -B directory, but for the guest we use the same
-# layout as a normal sysroot (/tcc/lib), which is why CRT and LIBPATHS are overridden.
+# layout as a normal sysroot (/extras/tcc/lib), which is why CRT and LIBPATHS are overridden.
 # -DTOARU_TCC_NO_NATIVE disables -run: the ToaruOS libc has no mmap/mprotect, so
 # tcc would have no way to map code (see tcc.h).  guest-compat.c supplies strtold
 # and ldexpl, which are missing from the ToaruOS libc.
 "$TCC" -B"$LIB" -DTOARU_TCC_NO_NATIVE \
-    -DCONFIG_TCCDIR='"/tcc"' \
+    -DCONFIG_TCCDIR='"/extras/tcc"' \
     -DCONFIG_TCC_CRTPREFIX='"{B}/lib"' \
     -DCONFIG_TCC_LIBPATHS='"{B}/lib"' \
     -I"$GEN" -I"$SRC" -o "$OUT/tcc-guest" \

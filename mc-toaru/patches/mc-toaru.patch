@@ -197,3 +197,180 @@ index 6b102d0..ffa60ef 100644
  }
  
  // Find a fixed keyword, rejecting suffixes such as "integer" or "int中文".
+diff --git a/init.c b/init.c
+index 247a979..cc7b684 100644
+--- a/init.c
++++ b/init.c
+@@ -59,29 +59,35 @@ void init_screen() {
+     noecho();
+     curs_set(1);
+ 
+-    // Each row defines one color pair; monochrome preserves light dialog/footer backgrounds.
++    // Each row defines one color pair.  Every pair shares the same blue
++    // background; the foreground (and bold) alone tells the roles apart.
++    // Monochrome terminals keep the light dialog/footer look.
+     static const short palette[][3]={
+-        {COLOR_WHITE_ON_BLACK, COLOR_WHITE, COLOR_BLACK},
+-        {COLOR_BLACK_ON_WHITE, COLOR_BLACK, COLOR_WHITE},
+-        {COLOR_WHITE_ON_RED, COLOR_WHITE, COLOR_RED},
+-        {COLOR_WHITE_ON_BLUE, COLOR_WHITE, COLOR_BLUE},
+-        {COLOR_YELLOW_ON_BLUE, COLOR_YELLOW, COLOR_BLUE},
+-        {COLOR_GREEN_ON_BLUE, COLOR_GREEN, COLOR_BLUE},
+-        {COLOR_RED_ON_BLUE, COLOR_RED, COLOR_BLUE},
+-        {COLOR_MAGENTA_ON_BLUE, COLOR_MAGENTA, COLOR_BLUE},
+-        {COLOR_CYAN_ON_BLUE, COLOR_CYAN, COLOR_BLUE},
+-        {COLOR_CYAN_ON_BLACK, COLOR_CYAN, COLOR_BLACK},
+-        {COLOR_YELLOW_ON_CYAN, COLOR_YELLOW, COLOR_CYAN},
+-        {COLOR_BLACK_ON_CYAN, COLOR_BLACK, COLOR_CYAN},
+-        {COLOR_BLACK_ON_CYAN_BTN, COLOR_BLACK, COLOR_CYAN},
+-        {COLOR_BLACK_ON_CYAN_PMPT, COLOR_BLACK, COLOR_CYAN},
+-        {COLOR_BLUE_ON_WHITE, COLOR_BLUE, COLOR_WHITE},
+-        {COLOR_BLUE_ON_CYAN, COLOR_BLUE, COLOR_CYAN}
++        {COLOR_WHITE_ON_BLACK, COLOR_WHITE, COLOR_BLUE},
++        {COLOR_BLACK_ON_WHITE, COLOR_BLACK, COLOR_BLUE},
++        {COLOR_WHITE_ON_RED,   COLOR_RED,   COLOR_BLUE},
++        {COLOR_WHITE_ON_BLUE,  COLOR_WHITE, COLOR_BLUE},
++        {COLOR_YELLOW_ON_BLUE, COLOR_YELLOW,COLOR_BLUE},
++        {COLOR_GREEN_ON_BLUE,  COLOR_GREEN, COLOR_BLUE},
++        {COLOR_RED_ON_BLUE,    COLOR_RED,   COLOR_BLUE},
++        {COLOR_MAGENTA_ON_BLUE,COLOR_MAGENTA,COLOR_BLUE},
++        {COLOR_CYAN_ON_BLUE,   COLOR_CYAN,  COLOR_BLUE},
++        {COLOR_CYAN_ON_BLACK,  COLOR_CYAN,  COLOR_BLUE},
++        {COLOR_YELLOW_ON_CYAN, COLOR_WHITE, COLOR_BLUE},
++        {COLOR_BLACK_ON_CYAN,  COLOR_YELLOW,COLOR_BLUE},
++        {COLOR_BLACK_ON_CYAN_BTN, COLOR_WHITE, COLOR_BLUE},
++        {COLOR_BLACK_ON_CYAN_PMPT,COLOR_WHITE, COLOR_BLUE},
++        {COLOR_BLUE_ON_WHITE,  COLOR_CYAN,  COLOR_BLUE},
++        {COLOR_BLUE_ON_CYAN,   COLOR_YELLOW,COLOR_BLUE},
++        /* cursor row: same blue family, just a brighter shade (SGR 104) */
++        {COLOR_BLACK_ON_LBLUE,  COLOR_BLACK,  COLOR_BLUE+8},
++        {COLOR_YELLOW_ON_LBLUE, COLOR_YELLOW, COLOR_BLUE+8}
+     };
+     for (size_t i=0; i < sizeof(palette)/sizeof(*palette); i++) {
+         short pair=palette[i][0], foreground=palette[i][1], background=palette[i][2];
+         if (!color_enabled) {
+-            int light=pair == COLOR_BLACK_ON_WHITE || pair == COLOR_BLACK_ON_CYAN || pair == COLOR_BLUE_ON_WHITE;
++            int light=pair == COLOR_BLACK_ON_WHITE || pair == COLOR_BLACK_ON_CYAN || pair == COLOR_BLUE_ON_WHITE
++                   || pair == COLOR_BLACK_ON_LBLUE || pair == COLOR_YELLOW_ON_LBLUE;
+             foreground=light ? COLOR_BLACK : COLOR_WHITE;
+             background=light ? COLOR_WHITE : COLOR_BLACK;
+         }
+diff --git a/panel.c b/panel.c
+index 8514fcf..a980bc5 100644
+--- a/panel.c
++++ b/panel.c
+@@ -243,6 +243,7 @@ void update_panel(WINDOW *win, PanelProp *panel) {
+             prefix = '~';
+             wattron(win, A_BOLD);
+         } else if (current->is_dir) {
++                    wattron(win, COLOR_PAIR(COLOR_WHITE_ON_BLUE));
+             prefix = '/';
+             wattron(win, A_BOLD);
+         } else if (current->is_link) {
+@@ -253,7 +254,7 @@ void update_panel(WINDOW *win, PanelProp *panel) {
+             wattron(win, A_BOLD);
+         } else if (current->is_executable) {
+             prefix = '*';
+-            wattron(win, COLOR_PAIR(COLOR_GREEN_ON_BLUE));
++            wattron(win, COLOR_PAIR(COLOR_WHITE_ON_BLUE));
+             wattron(win, A_BOLD);
+         }
+ 
+@@ -289,14 +290,14 @@ void update_panel(WINDOW *win, PanelProp *panel) {
+             }
+ 
+             if (panel == active_panel) {
+-                wattron(win, COLOR_PAIR(COLOR_BLACK_ON_CYAN));
++                wattron(win, COLOR_PAIR(COLOR_BLACK_ON_LBLUE));
+                 wattroff(win, A_BOLD);
+ 
+                 mvwprintw(win, line, width - 7 - 12 - 1, "|");
+                 mvwprintw(win, line, width - 12, "|");
+ 
+                 if (current->is_selected) {
+-                   wattron(win, COLOR_PAIR(COLOR_YELLOW_ON_CYAN));
++                   wattron(win, COLOR_PAIR(COLOR_YELLOW_ON_LBLUE));
+                    wattron(win, A_BOLD);
+                 }
+            }
+diff --git a/types.h b/types.h
+index 9d7521b..f719f09 100644
+--- a/types.h
++++ b/types.h
+@@ -85,7 +85,10 @@ enum Color {
+     COLOR_CYAN_ON_BLACK,
+     COLOR_RED_ON_BLUE,
+     COLOR_BLUE_ON_WHITE,
+-    COLOR_BLUE_ON_CYAN
++    COLOR_BLUE_ON_CYAN,
++    /* cursor row on a brighter shade of the same blue background */
++    COLOR_BLACK_ON_LBLUE,
++    COLOR_YELLOW_ON_LBLUE
+ };
+ 
+ 
+diff --git a/ui.c b/ui.c
+index 553dd50..0f18728 100644
+--- a/ui.c
++++ b/ui.c
+@@ -205,7 +205,8 @@ void draw_dialog_text(WINDOW *win, int row, const char *text)
+ const char *const panel_buttons[9]={"Sort", "View", "Edit", "Copy", "Move", "Mkdir", "Del", "Refresh", "Quit"};
+ 
+ void draw_buttons(int maxY, int maxX, const char *const labels[9]) {
+-    attrset(A_NORMAL);
++    // The whole footer sits on the same blue background as the panels.
++    attrset(COLOR_PAIR(COLOR_WHITE_ON_BLUE));
+     move(maxY - 1, 0);
+     clrtoeol();
+     for (int i=0; i < 9; i++) {
+@@ -213,14 +214,14 @@ void draw_buttons(int maxY, int maxX, const char *const labels[9]) {
+         if (width <= 0) continue;
+         char key[4];
+         int length=snprintf(key, sizeof(key), "F%d", i+2);
+-        attrset(A_NORMAL);
++        attrset(A_BOLD | COLOR_PAIR(COLOR_WHITE_ON_BLUE));
+         mvaddnstr(maxY-1, x, key, width);
+         if (width <= length) continue;
+         attrset(COLOR_PAIR(COLOR_BLACK_ON_CYAN));
+         mvhline(maxY-1, x+length, ' ', width-length);
+         mvaddnstr(maxY-1, x+length, labels[i], width-length);
+     }
+-    attrset(A_NORMAL);
++    attrset(COLOR_PAIR(COLOR_WHITE_ON_BLUE));
+ }
+ 
+ // Translate clicks on visible, active footer slots into their keyboard actions.
+diff --git a/view_edit.c b/view_edit.c
+index 6b102d0..75b5d0e 100644
+--- a/view_edit.c
++++ b/view_edit.c
+@@ -467,8 +467,10 @@ int view_edit_file(char *filename, int editor_mode) {
+     wbkgd(toprow_win, COLOR_PAIR(COLOR_BLACK_ON_CYAN));
+     wattron(toprow_win, COLOR_PAIR(COLOR_BLACK_ON_CYAN));
+ 
+-    // Create a new window for displaying the file content
+-    WINDOW *content_win = newwin(max_y - 2, max_x, 1, 0);
++    // Create a new window for displaying the file content.  It reaches down to
++    // the last screen row, so the view covers the whole screen and no remnants
++    // of the mc footer stay visible underneath it.
++    WINDOW *content_win = newwin(max_y - 1, max_x, 1, 0);
+     if (!toprow_win || !content_win)
+     {
+         delwin(toprow_win);
+@@ -798,7 +800,7 @@ int view_edit_file(char *filename, int editor_mode) {
+             case KEY_RESIZE:
+                 getmaxyx(stdscr, max_y, max_x);
+                 wresize(toprow_win, 1, max_x);
+-                wresize(content_win, max_y-2, max_x);
++                wresize(content_win, max_y-1, max_x);
+                 break;
+             case '\n':
+             case '\r':
+@@ -946,5 +948,7 @@ close_editor:
+     delwin(toprow_win);
+     delwin(content_win);
+     free_file_lines(lines);
++    werase(stdscr);
++    wrefresh(stdscr);
+     return 0;
+ }

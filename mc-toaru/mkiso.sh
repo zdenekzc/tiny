@@ -9,7 +9,8 @@
 # The source ISO is the unmodified ToaruOS 2.3.2 release ISO.  The script
 # extracts it, unpacks ramdisk.igz (a gzip-compressed tar), installs the
 # patched mc from _output/mc as /bin/mc, copies everything from _build/push
-# into the ramdisk root, repacks the ramdisk, rebuilds fat.img (kernel +
+# into /extras inside the ramdisk (never into / — files on / would clutter
+# the desktop icons), repacks the ramdisk, rebuilds fat.img (kernel +
 # ramdisk + EFI loader) and finally creates the ISO.
 set -euo pipefail
 
@@ -18,6 +19,8 @@ TOP=$(cd "$HERE/.." && pwd)
 ISO_IN=${ISO_IN:-$TOP/_build/download/toaruos-2.3.2.iso}
 MC_BIN=${MC_BIN:-$TOP/_output/mc}
 SRC_EXTRA=${SRC_EXTRA:-$TOP/_build/push}
+EXTRA_DIR=${EXTRA_DIR:-extras}   # payload subdirectory in the ramdisk; files must
+                                 # NOT go to / — they would clutter the desktop icons
 OUT=${1:-$TOP/_build/custom.iso}
 WORK=$(mktemp -d "$TOP/_tmp/mkiso.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
@@ -62,8 +65,9 @@ echo "== installing mc as /bin/mc"
 install -m 755 "$MC_BIN" "$WORK/ramdisk/bin/mc"
 
 if [[ -d "$SRC_EXTRA" ]]; then
-    echo "== copying payload from $SRC_EXTRA into the ramdisk"
-    cp -a "$SRC_EXTRA"/. "$WORK/ramdisk/"
+    echo "== copying payload from $SRC_EXTRA into /$EXTRA_DIR"
+    mkdir -p "$WORK/ramdisk/$EXTRA_DIR"
+    cp -a "$SRC_EXTRA"/. "$WORK/ramdisk/$EXTRA_DIR/"
 fi
 
 echo "== repacking ramdisk.igz"

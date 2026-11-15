@@ -13,13 +13,14 @@
 #   4. downloads mini-commander and compiles it with the cross tcc (_output/mc),
 #   5. downloads the Nuklear header (browsing only),
 #   6. builds _build/custom.iso via mc-toaru/mkiso.sh: ALL files (mc, tcc,
-#      examples, sources, ...) are placed INSIDE the ramdisk (ramdisk.igz),
-#      so the guest sees them directly on / — no shared disk and no mounting.
+#      examples, sources, ...) are placed INSIDE the ramdisk (ramdisk.igz)
+#      under /extras — no shared disk, no mounting, and / stays clean so the
+#      desktop icons are not cluttered (mc itself is /bin/mc).
 #   7. starts a HEADLESS (no window) control VM and verifies:
-#        - /tcc_test (program compiled by the cross tcc),
-#        - tcc inside ToaruOS compiles and runs /tcc_hello.c,
-#        - every example in / compiles and runs,
-#        - /gcc_hello (built by the HOST gcc, see gcc-toaru.sh) runs,
+#        - /extras/tcc_test (program compiled by the cross tcc),
+#        - tcc inside ToaruOS compiles and runs /extras/tcc_hello.c,
+#        - every example in /extras compiles and runs,
+#        - /extras/gcc_hello (built by the HOST gcc, see gcc-toaru.sh) runs,
 #        - mini-commander starts, draws its panels with a highlighted current
 #          item, executes its command line on Enter and quits with F10 or a
 #          mouse click on the F10 footer,
@@ -31,8 +32,8 @@
 #
 # Inside the visible ToaruOS open the Terminal and run:
 #
-#   /tcc/bin/tcc -o /tmp/hello /tcc_hello.c ; /tmp/hello
-#   mc /
+#   /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+#   mc /extras
 #
 # (When the VM is started by hand, pass the custom ISO:
 #  ISO=_build/custom.iso ./toaru-vm.sh start)
@@ -219,24 +220,24 @@ cp "${NUKLEAR}" "${PUSH}/nuklear.h"
 {
     cat <<'GUEST_EOF'
 #!/bin/sh
-# Compiles and runs all *.c in /.  Output goes to /tmp so that
+# Compiles and runs all *.c in /extras.  Output goes to /tmp so that
 # nothing is written to the ramdisk.
 #
-#   /compile_examples.sh
+#   /extras/compile_examples.sh
 #
-# All sources in / are plain C and TinyCC compiles and runs them;
+# All sources in /extras are plain C and TinyCC compiles and runs them;
 # tcc_test.c is the test program from tcc/toaru.
-if not stat -q /tcc/bin/tcc then echo "tcc is missing from the ramdisk"
-if not stat -q /tcc/bin/tcc then exit 1
+if not stat -q /extras/tcc/bin/tcc then echo "tcc is missing from the ramdisk"
+if not stat -q /extras/tcc/bin/tcc then exit 1
 
 GUEST_EOF
     for src in "${PUSH}"/*.c; do
         name=$(basename "$src" .c)
-        printf 'echo "== /%s.c"\n' "$name"
+        printf 'echo "== /extras/%s.c"\n' "$name"
         printf 'if stat -q "/tmp/%s" then rm "/tmp/%s"\n' "$name" "$name"
-        printf '/tcc/bin/tcc -o "/tmp/%s" "/%s.c"\n' "$name" "$name"
+        printf '/extras/tcc/bin/tcc -o "/tmp/%s" "/extras/%s.c"\n' "$name" "$name"
         printf 'if stat -q "/tmp/%s" then "/tmp/%s"\n' "$name" "$name"
-        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /%s.c"\n\n' "$name" "$name"
+        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /extras/%s.c"\n\n' "$name" "$name"
     done
 } > "${PUSH}/compile_examples.sh"
 chmod +x "${PUSH}/compile_examples.sh"
@@ -245,21 +246,22 @@ cat > "${PUSH}/README.txt" <<'GUEST_EOF'
 ToaruOS + TinyCC + mini-commander
 =================================
 
-All files are part of the ramdisk — no disk needs to be mounted.
+All files are part of the ramdisk under /extras — no disk needs to be
+mounted and / stays clean for the desktop icons.
 
 TinyCC inside ToaruOS:
 
-    /tcc/bin/tcc -o /tmp/hello /tcc_hello.c ; /tmp/hello
-    /compile_examples.sh
+    /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+    /extras/compile_examples.sh
 
 mini-commander:
 
-    /mc /          (also installed as /bin/mc)
+    mc /            (also /bin/mc /)
 
-/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a, libtcc1.a),
-/toaruos-src contains the sources of ToaruOS 2.3.2.
-/gcc_hello was built on the host by the host gcc (gcc-toaru.sh), not by
-TinyCC: same ToaruOS libc, different compiler.
+/extras/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a,
+libtcc1.a), /extras/toaruos-src contains the sources of ToaruOS 2.3.2.
+/extras/gcc_hello was built on the host by the host gcc (gcc-toaru.sh),
+not by TinyCC: same ToaruOS libc, different compiler.
 GUEST_EOF
 
 # a tiny directory with a predictable layout, used by the automatic mc
@@ -315,28 +317,28 @@ demo() {
     # CR (Enter) and for escape sequences whose trailing NL would be read as Enter.
     send_raw() { printf '%s' "$1" > "${BUILD_DIR}/work/in"; }
 
-    "${VM}" send '/tcc_test; echo __T1__'
-    wait_for __T1__ || { echo "  *** /tcc_test did not finish"; rc=1; return $rc; }
+    "${VM}" send '/extras/tcc_test; echo __T1__'
+    wait_for __T1__ || { echo "  *** /extras/tcc_test did not finish"; rc=1; return $rc; }
 
     # esh does not handle && (only ;), hence two commands in a row
-    "${VM}" send '/tcc/bin/tcc -o /tmp/tcc_hello /tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
+    "${VM}" send '/extras/tcc/bin/tcc -o /tmp/tcc_hello /extras/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
     wait_for __T2__ || { echo "  *** tcc in ToaruOS did not compile tcc_hello.c"; rc=1; return $rc; }
 
     # The same C library, but the program was compiled by the HOST gcc.
     if [[ -f "${GCC_TEST}" ]]; then
-        "${VM}" send '/gcc_hello; echo __T4__'
-        wait_for __T4__ || { echo "  *** /gcc_hello (host gcc) did not finish"; rc=1; return $rc; }
+        "${VM}" send '/extras/gcc_hello; echo __T4__'
+        wait_for __T4__ || { echo "  *** /extras/gcc_hello (host gcc) did not finish"; rc=1; return $rc; }
     fi
 
-    "${VM}" send '/compile_examples.sh; echo __T3__'
+    "${VM}" send '/extras/compile_examples.sh; echo __T3__'
     wait_for __T3__ || { echo "  *** compile_examples.sh did not finish"; rc=1; return $rc; }
 
     # mc exits with F10; we send the escape sequences directly (F9 = ESC[20~,
     # F10 = ESC[21~).  If the parser loses the CSI prefix, "20~"/"21~" ends up
     # on the terminal as text (that was a real bug), so check for both.
-    # Everything lives in the ramdisk; /demo has a predictable layout so the
+    # Everything lives in /extras; /extras/demo has a predictable layout so the
     # one Down arrow below always lands on README.txt.
-    local mc_cmd='/mc /demo'
+    local mc_cmd='/bin/mc /extras/demo'
     "${VM}" send "$mc_cmd"
     sleep 3
 
@@ -426,7 +428,7 @@ demo() {
     if [[ ${ok_count:-0} -lt 6 ]]; then
         echo "  *** only ${ok_count:-0} of the 6 examples printed O.K."; rc=1
     fi
-    btree_out=$(sed -n '/^== \/btree\.c$/,/^== \/heapsort\.c$/p' <<< "$text")
+    btree_out=$(sed -n '/^== \/extras\/btree\.c$/,/^== \/extras\/heapsort\.c$/p' <<< "$text")
     if ! grep -aqx '800' <<< "$btree_out"; then
         echo "  *** btree did not print its last key (800)"; rc=1
     fi
@@ -438,6 +440,9 @@ demo() {
     if ! grep -aqE '/demo/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' <<< "$text"; then
         echo "  *** the F3 viewer did not open README.txt"; rc=1
     fi
+    if ! grep -aq -- '-- /extras/demo --' <<< "$text"; then
+        echo "  *** mini-commander did not draw the file panels"; rc=1
+    fi
     if ! grep -aq 'U+0054' <<< "$text"; then
         echo "  *** the F4 editor did not open README.txt"; rc=1
     fi
@@ -447,12 +452,11 @@ demo() {
     if ! grep -aq 'Quit' <<< "$text"; then
         echo "  *** mini-commander did not draw (the Quit hint is missing)"; rc=1
     fi
-    if ! grep -aq -- '-- /demo --' <<< "$text"; then
-        echo "  *** mini-commander did not draw the file panels"; rc=1
-    fi
-    # The current item is drawn black on cyan (SGR 30;46).  If wattron() does
-    # not store the color pair, every row keeps the plain panel background.
-    if ! grep -aqF $'\033[0;30;46m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
+    # The current item is drawn black on bright blue (SGR 30;104) — the whole
+    # UI shares one blue background and the cursor row gets a brighter shade
+    # of the same blue.  If wattron() does not store the color pair, every row
+    # keeps the plain panel background.
+    if ! grep -aqF $'\033[0;30;104m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
         echo "  *** the current panel item is not highlighted"; rc=1
     fi
 
@@ -603,7 +607,7 @@ qmp_double_click() {
 # There is nothing to mount: every file travels inside ramdisk.igz and the
 # guest sees it directly on /.
 
-MC_NOTE="All files (mc, tcc, examples, sources) live in the ramdisk — no disk is mounted."
+MC_NOTE="All payload files live in /extras inside the ramdisk (mc is /bin/mc) — no disk is mounted and / stays clean for the desktop icons."
 START_HINT="ISO=${BOOT_ISO} ./toaru-vm.sh start"
 
 cat <<EOF
@@ -613,8 +617,8 @@ ${MC_NOTE}
 
 In the ToaruOS window open the Terminal and run:
 
-    /tcc/bin/tcc -o /tmp/hello /tcc_hello.c ; /tmp/hello
-    mc /          (also /bin/mc /)
+    /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+    mc /extras     (mc is also installed as /bin/mc)
 
 If you start the VM later by hand, pass the custom ISO:
 
