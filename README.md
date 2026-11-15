@@ -54,8 +54,9 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
    runs, that tcc inside ToaruOS compiles and runs `/extras/tcc_hello.c` and
    every example, that `/extras/gcc_hello` from the host gcc runs, and that
    mini-commander draws its panels (with the current
-   item highlighted), runs its command line on Enter, opens the viewer (F3)
-   and editor (F4) and quits with F10 or a mouse click,
+   item highlighted), runs its command line on Enter, keeps the output on the
+   normal screen until F9 returns to the panels, opens the viewer (F3) and
+   editor (F4) and quits with F10 or a mouse click,
 8. starts the **visible ToaruOS** in a QEMU window and mounts the shared disk at
    `/share`, then leaves the VM running:
    - graphical boot: closes the first-boot tutorial, double-clicks the Terminal
@@ -98,6 +99,12 @@ mini-commander:
 
 Quit with **F10** (same as Midnight Commander); the usual mouse and keyboard
 bindings apply (`Tab` switches panels, `F3` viewer, `F4` editor, …).
+
+Commands run from the command line are executed on the normal terminal screen
+and their output stays visible until you press **F9** to return to the panels.
+Because this is the normal screen (not the ncurses alternate screen), the
+graphical Terminal's scrollback can be used to review long output:
+**Shift+PgUp/Shift+PgDn** or the mouse wheel.
 
 ## Building a program with the host gcc
 
@@ -342,6 +349,14 @@ After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
   and `cell_put()` applies them; the active row is black on cyan, `.c`/`.h`
   files cyan and executable files bold green. The automated check looks for the
   black-on-cyan SGR sequence in the guest output.
+- **Command output, F9 and scrolling**: `endwin()` now really leaves the
+  alternate screen (`?1049l`) and resets SGR (`ESC[0m`), so a command runs on
+  the normal screen with the standard background instead of on top of the
+  panels' blue attributes. mc keeps the output there and waits for **F9**
+  before returning to the panels; the output stays in the terminal's
+  scrollback, reachable with Shift+PgUp/Shift+PgDn or the mouse wheel. When
+  re-entering curses mode, `init_screen()` enters the alternate screen before
+  `refresh()`, otherwise it would paint the panels over the output.
 - **ext2 and sparse files** — the trickiest thing in the project: `mke2fs -d`
   writes files with holes (zero blocks are not allocated), but `modules/ext2.c`
   in ToaruOS 2.3.2 has two bugs:

@@ -406,7 +406,16 @@ static void alloc_screens(void)
 	started = 1;
 }
 static void alt_screen_enable(void) {
+	if (alt_screen)
+		return;
 	out_str("\033[?1049h");
+	alt_screen = 1;
+	/* Entering the alternate screen clears it, so curscr no longer describes
+	 * what the terminal shows; force a full repaint from newscr. */
+	if (started)
+		win_fill(curscr, ' ', 0xFFFFFFFFu);
+	phys_y = phys_x = -1;
+	last_attr = 0xDEAD;
 }
 
 WINDOW *initscr(void)
@@ -457,6 +466,9 @@ int endwin(void)
 		out_str("\033[?1049l");
 		alt_screen = 0;
 	}
+	/* The terminal keeps SGR between commands; reset it so whatever the
+	 * application prints after endwin() uses the standard colours. */
+	out_str("\033[0m");
 	out_flush();
 	term_restore();
 	phys_y = phys_x = -1;

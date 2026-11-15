@@ -436,6 +436,12 @@ demo() {
     if ! "${VM}" log 2000 2>/dev/null | grep -qx '__MC_ENTER__'; then
         echo "  *** Enter did not execute the mini-commander command line"; rc=1
     fi
+    # The output stays on the normal screen (not the panels) until F9.
+    if ! "${VM}" log 4000 2>/dev/null | grep -aq '\[F9\] return to mini-commander'; then
+        echo "  *** the command output did not wait for F9"; rc=1
+    fi
+    send_raw "$(printf '\033[20~')"   # F9 - back to the panels
+    sleep 1
 
     # F3 (viewer) and F4 (editor) used to crash: view_edit.c called mmap(),
     # which ToaruOS does not implement, and then parsed the NULL pointer.

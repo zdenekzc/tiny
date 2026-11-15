@@ -114,6 +114,94 @@ index 1497b1a..2aa09c9 100644
 -#include <linux/fs.h>
 +/* #include <linux/fs.h> */
  #endif
+diff --git a/init.c b/init.c
+index 247a979..01b0e43 100644
+--- a/init.c
++++ b/init.c
+@@ -26,7 +26,9 @@ void initialize_ncurses() {
+ 
+ void init_screen() {
+     initialize_ncurses();
+-    refresh();
++    // Enter the alternate screen before painting: after endwin() the terminal
++    // is back on the normal screen (showing command output), and a refresh()
++    // there would scribble over it.
+     mouseinterval(50);
+     mousemask(ALL_MOUSE_EVENTS|REPORT_MOUSE_POSITION, NULL);
+     mouse_tracking(1);
+@@ -87,6 +89,7 @@ void init_screen() {
+         }
+         init_pair(pair, foreground, background);
+     }
++    refresh();
+ }
+ 
+ void cleanup() {
+diff --git a/mc.c b/mc.c
+index b78bf47..cdc04b6 100644
+--- a/mc.c
++++ b/mc.c
+@@ -1,4 +1,5 @@
+ #include "includes.h"
++#include <termios.h>
+ #include "types.h"
+ #include "globals.h"
+ 
+@@ -30,6 +31,46 @@ int noesc(int ch) {
+     return ch;
+ }
+ 
++// Leave the command output on the terminal until F9 is pressed.  endwin()
++// has already switched back to the normal screen, so the terminal's own
++// scrollback (Shift+PgUp/PgDn or the mouse wheel) can be used to review it.
++static void wait_for_f9(void) {
++    struct termios saved, current;
++    int have_tio = tcgetattr(STDIN_FILENO, &saved) == 0;
++
++    printf("\n[F9] return to mini-commander\n");
++    fflush(stdout);
++
++    if (have_tio) {
++        current = saved;
++        current.c_lflag &= ~(unsigned)(ICANON | ECHO);
++        current.c_iflag &= ~(unsigned)(IXON | ICRNL);
++        current.c_cc[VMIN] = 1;
++        current.c_cc[VTIME] = 0;
++        tcsetattr(STDIN_FILENO, TCSANOW, &current);
++    }
++
++    // ToaruOS Terminal (and xterm) sends F9 as ESC [ 2 0 ~
++    int state = 0;
++    for (;;) {
++        unsigned char c;
++        if (read(STDIN_FILENO, &c, 1) != 1) break;
++        switch (state) {
++            case 0: state = (c == 0x1b) ? 1 : 0; break;
++            case 1: state = (c == '[') ? 2 : (c == 0x1b ? 1 : 0); break;
++            case 2: state = (c == '2') ? 3 : (c == 0x1b ? 1 : 0); break;
++            case 3: state = (c == '0') ? 4 : (c == 0x1b ? 1 : 0); break;
++            case 4:
++                if (c == '~') goto done;
++                state = (c == 0x1b) ? 1 : 0;
++                break;
++        }
++    }
++done:
++    if (have_tio) tcsetattr(STDIN_FILENO, TCSANOW, &saved);
++    fflush(stdout);
++}
++
+ 
+ int main(int argc, char *argv[]) {
+ 
+@@ -342,6 +383,7 @@ int main(int argc, char *argv[]) {
+                     if (execute_file(cmd) < 0) perror(cmd);
+                 }
+                 else system(cmd); // Explicitly typed commands retain shell syntax.
++                wait_for_f9();
+                 init_screen();
+                 memset(cmd, 0, CMD_MAX);
+                 cmd_len = cursor_pos = cmd_offset = prompt_length = 0;
 diff --git a/operations.c b/operations.c
 index 06b0e7a..241f8f7 100644
 --- a/operations.c
@@ -144,7 +232,7 @@ index 06b0e7a..241f8f7 100644
      return OPERATION_OK;
  }
 diff --git a/view_edit.c b/view_edit.c
-index 6b102d0..ffa60ef 100644
+index 6b102d0..36340d6 100644
 --- a/view_edit.c
 +++ b/view_edit.c
 @@ -169,11 +169,29 @@ static file_lines *load_file_lines(const char *filename, off_t *num_lines, off_t
@@ -197,11 +285,7 @@ index 6b102d0..ffa60ef 100644
  }
  
  // Find a fixed keyword, rejecting suffixes such as "integer" or "int中文".
-diff --git a/view_edit.c b/view_edit.c
-index 6b102d0..75b5d0e 100644
---- a/view_edit.c
-+++ b/view_edit.c
-@@ -467,8 +467,10 @@ int view_edit_file(char *filename, int editor_mode) {
+@@ -467,8 +483,10 @@ int view_edit_file(char *filename, int editor_mode) {
      wbkgd(toprow_win, COLOR_PAIR(COLOR_BLACK_ON_CYAN));
      wattron(toprow_win, COLOR_PAIR(COLOR_BLACK_ON_CYAN));
  
@@ -214,7 +298,7 @@ index 6b102d0..75b5d0e 100644
      if (!toprow_win || !content_win)
      {
          delwin(toprow_win);
-@@ -798,7 +800,7 @@ int view_edit_file(char *filename, int editor_mode) {
+@@ -798,7 +816,7 @@ int view_edit_file(char *filename, int editor_mode) {
              case KEY_RESIZE:
                  getmaxyx(stdscr, max_y, max_x);
                  wresize(toprow_win, 1, max_x);
@@ -223,7 +307,7 @@ index 6b102d0..75b5d0e 100644
                  break;
              case '\n':
              case '\r':
-@@ -946,5 +948,7 @@ close_editor:
+@@ -946,5 +964,7 @@ close_editor:
      delwin(toprow_win);
      delwin(content_win);
      free_file_lines(lines);
