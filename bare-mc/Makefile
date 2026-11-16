@@ -31,8 +31,6 @@ all: $(ISO)
 
 $(KERNEL_BIN): $(OBJS) linker.ld
 	$(LD) $(LDFLAGS) -o $@ $(OBJS)
-	# Strip to raw binary (multiboot2 expects a flat binary)
-	$(OBJCOPY) -O binary $@ $@
 
 # Simple linker script that places the multiboot header at the start
 linker.ld:
