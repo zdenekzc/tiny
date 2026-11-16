@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run-toaru-grub.sh — Boot ToaruOS via GRUB and auto-start mini-commander.
+# test-grub.sh — Boot ToaruOS via GRUB and auto-start mini-commander.
 #
 # This script builds ToaruOS (if not already built), extracts the kernel and
 # initrd, creates a GRUB bootable ISO that loads them, and runs QEMU with a
@@ -44,8 +44,8 @@ EOF
 
 # Build the GRUB ISO.
 GRUB_ISO="${BUILD_DIR}/toaruos_grub.iso"
-# grub-mkrescue must be on PATH.
-grub-mkrescue -o "${GRUB_ISO}" "${GRUB_DIR}" > /dev/null
+# grub2-mkrescue must be on PATH.
+grub2-mkrescue -o "${GRUB_ISO}" "${GRUB_DIR}" > /dev/null
 
 echo "== GRUB ISO created at ${GRUB_ISO}"
 
