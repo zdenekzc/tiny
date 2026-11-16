@@ -8,11 +8,14 @@
 # Tools
 CC ?= gcc
 LD ?= ld
+
+# Repository root (parent directory of bare-mc)
+REPO_ROOT := $(abspath ..)
 OBJCOPY ?= objcopy
 GRUB_MKRESCUE ?= grub2-mkrescue
 
 # Flags
-CFLAGS := -ffreestanding -fno-pie -m64 -O2 -Wall -Wextra -nostdinc -I. -I./include
+CFLAGS := -ffreestanding -fno-pie -m64 -O2 -Wall -Wextra -I. -I./include
 LDFLAGS := -nostdlib -static -melf_x86_64 -T linker.ld
 
 # Sources
@@ -26,52 +29,37 @@ GRUB_DIR := grub_dir
 
 all: $(ISO)
 
-$(KERNEL_BIN): $(OBJS)
-	$(LD) $(LDFLAGS) -o $@ $^
+$(KERNEL_BIN): $(OBJS) linker.ld
+	$(LD) $(LDFLAGS) -o $@ $(OBJS)
 	# Strip to raw binary (multiboot2 expects a flat binary)
 	$(OBJCOPY) -O binary $@ $@
 
 # Simple linker script that places the multiboot header at the start
-linker.ld: ; @echo "Generating minimal linker script" > $@
-	@cat <<'EOF' >> $@
-SECTIONS
-{
-  . = 0x100000; /* load address */
-  .multiboot : { *(.multiboot) }
-  .text : { *(.text*) }
-  .rodata : { *(.rodata*) }
-  .data : { *(.data*) }
-  .bss : { *(.bss*) }
-}
-EOF
+linker.ld:
+	@echo "Generating minimal linker script" > $@
+	@printf "SECTIONS\n{\n  . = 0x100000; /* load address */\n  .multiboot : { *(.multiboot) }\n  .text : { *(.text*) }\n  .rodata : { *(.rodata*) }\n  .data : { *(.data*) }\n  .bss : { *(.bss*) }\n}\n" > $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Build the initramfs containing mini‑commander and minimal /etc files
 initramfs.tar: $(KERNEL_BIN)
-	mkdir -p bare-mc/initramfs_root/bin
-	cp -a _output/mc bare-mc/initramfs_root/bin/mini-commander
+	mkdir -p initramfs_root/bin
+	cp -a $(REPO_ROOT)/_output/mc initramfs_root/bin/mini-commander
 	# Minimal required files for compatibility (empty placeholders)
-	mkdir -p bare-mc/initramfs_root/etc
-	touch bare-mc/initramfs_root/etc/passwd
-	touch bare-mc/initramfs_root/etc/group
-	cd bare-mc/initramfs_root && tar -cf ../initramfs.tar .
+	mkdir -p initramfs_root/etc
+	touch initramfs_root/etc/passwd
+	touch initramfs_root/etc/group
+	cd initramfs_root && tar -cf ../initramfs.tar .
 
 # GRUB configuration and ISO creation
 $(ISO): $(KERNEL_BIN) initramfs.tar
 	mkdir -p $(GRUB_DIR)/boot/grub
 	cp $(KERNEL_BIN) $(GRUB_DIR)/boot/kernel.bin
 	cp initramfs.tar $(GRUB_DIR)/boot/initramfs.tar
-	cat > $(GRUB_DIR)/boot/grub/grub.cfg <<'EOF'
-set timeout=3
-menuentry "Bare MC" {
-    multiboot2 /boot/kernel.bin
-    module2 /boot/initramfs.tar type=tar
-}
-EOF
+	@printf "# Ensure GRUB menu is displayed\ntimeout_style=menu\nset timeout=3\nmenuentry \"Bare MC\" {\n    multiboot2 /boot/kernel.bin\n    module2 /boot/initramfs.tar type=tar\n}\n" > $(GRUB_DIR)/boot/grub/grub.cfg
 	$(GRUB_MKRESCUE) -o $@ $(GRUB_DIR) > /dev/null
 
 clean:
 	rm -f $(OBJS) $(KERNEL_BIN) linker.ld initramfs.tar $(ISO)
-	rm -rf $(GRUB_DIR) bare-mc/initramfs_root
+	rm -rf $(GRUB_DIR) initramfs_root
