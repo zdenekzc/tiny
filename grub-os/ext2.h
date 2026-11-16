@@ -86,3 +86,12 @@ int  ext2_write_file_overwrite(uint32_t ino, const uint8_t *buf, uint32_t size);
 int  ext2_list_dir(uint32_t ino,
                    void (*cb)(const char *name, uint8_t type, uint32_t ino, void *user),
                    void *user);
+
+/* accessors for the write layer (ext2w.c) */
+uint32_t        ext2_block_size(void);
+Ext2Super      *ext2_super_ptr(void);
+Ext2GroupDesc  *ext2_group0_ptr(void);
+void            ext2_read_block(uint32_t blk, uint8_t *buf);
+void            ext2_write_block(uint32_t blk, const uint8_t *buf);
+int             ext2_write_inode(uint32_t ino, const Ext2Inode *in);
+void            ext2_flush_meta(void);

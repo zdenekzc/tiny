@@ -168,3 +168,51 @@ int ext2_list_dir(uint32_t ino_num,
     }
     return 1;
 }
+
+/* ---- accessors for the write layer (ext2w.c) ---- */
+
+uint32_t ext2_block_size(void) {
+    return block_size;
+}
+
+Ext2Super *ext2_super_ptr(void) {
+    return &super;
+}
+
+Ext2GroupDesc *ext2_group0_ptr(void) {
+    return &group0;
+}
+
+void ext2_read_block(uint32_t blk, uint8_t *buf) {
+    read_block(blk, buf);
+}
+
+void ext2_write_block(uint32_t blk, const uint8_t *buf) {
+    write_block(blk, buf);
+}
+
+int ext2_write_inode(uint32_t ino, const Ext2Inode *in) {
+    if (!ino) return 0;
+    uint32_t idx = ino - 1;
+    uint32_t inodes_per_block = block_size / super.inode_size;
+    uint32_t blk = group0.inode_table + (idx / inodes_per_block);
+    uint32_t off = (idx % inodes_per_block) * super.inode_size;
+
+    uint8_t buf[4096];
+    read_block(blk, buf);
+    memcpy(buf + off, in, sizeof(Ext2Inode));
+    write_block(blk, buf);
+    return 1;
+}
+
+void ext2_flush_meta(void) {
+    /* superblock lives at byte 1024 == block 1 (block_size 1024) */
+    uint8_t buf[4096];
+    read_block(1, buf);
+    memcpy(buf, &super, sizeof(Ext2Super));
+    write_block(1, buf);
+
+    read_block(2, buf);
+    memcpy(buf, &group0, sizeof(Ext2GroupDesc));
+    write_block(2, buf);
+}

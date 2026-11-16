@@ -53,3 +53,11 @@ int strcmp(const char *a, const char *b) {
     while (*a && *a == *b) { a++; b++; }
     return (int)(uint8_t)*a - (int)(uint8_t)*b;
 }
+
+char *strncat(char *dst, const char *src, size_t n) {
+    char *d = dst;
+    while (*d) d++;
+    while (n-- && *src) *d++ = *src++;
+    *d = 0;
+    return dst;
+}

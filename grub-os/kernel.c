@@ -93,6 +93,10 @@ void ata_write28(uint32_t lba, const uint8_t *buffer) {
         uint16_t w = buffer[i*2] | (buffer[i*2+1]<<8);
         __asm__ volatile("outw %0,%w1"::"a"(w),"d"(0x1F0));
     }
+    /* wait for the drive to finish processing the write; issuing the
+     * next command while BSY makes QEMU silently drop it */
+    while (inb(0x1F7) & 0x80) ;
+    inb(0x1F7);  /* status read acknowledges the interrupt */
 }
 
 /* serial (COM1) debug output */
