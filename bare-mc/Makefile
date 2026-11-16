@@ -34,8 +34,8 @@ $(KERNEL_BIN): $(OBJS) linker.ld
 
 # Simple linker script that places the multiboot header at the start
 linker.ld:
-	@echo "Generating minimal linker script" > $@
-	@printf "SECTIONS\n{\n  . = 0x100000; /* load address */\n  .multiboot : { *(.multiboot) }\n  .text : { *(.text*) }\n  .rodata : { *(.rodata*) }\n  .data : { *(.data*) }\n  .bss : { *(.bss*) }\n}\n" > $@
+	@printf "ENTRY(_start)\nSECTIONS\n{\n    . = 0x100000;\n    .multiboot ALIGN(4K) : { *(.multiboot) }\n    .text ALIGN(4K) : { *(.text*) }\n    .rodata ALIGN(4K) : { *(.rodata*) }\n    .data ALIGN(4K) : { *(.data*) }\n    .bss ALIGN(4K) : { *(.bss*) *(COMMON) }\n    . = ALIGN(4K);\n    . += 0x4000;\n    stack_top = .;\n}\n" > $@
+	# @printf "SECTIONS\n{\n  . = 0x100000; /* load address */\n  .multiboot : { *(.multiboot) }\n  .text : { *(.text*) }\n  .rodata : { *(.rodata*) }\n  .data : { *(.data*) }\n  .bss : { *(.bss*) }\n}\n" > $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
