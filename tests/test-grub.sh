@@ -16,11 +16,7 @@ fi
 set -euo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-# Ensure mini‑commander binary exists.
-if [[ ! -x "${REPO_ROOT}/_output/mc" ]]; then
-    echo "== Building mini‑commander ..."
-    "${REPO_ROOT}/mc-toaru/build.sh" mc
-fi
+# Mini‑commander not required for bare‑MC boot.
 
 # Build the bare‑MC kernel and ISO.
 make -C "${REPO_ROOT}/bare-mc"
@@ -30,8 +26,26 @@ if [[ ! -f "$ISO" ]]; then
     echo "Error: ISO not found at $ISO"
     exit 1
 fi
+# Ensure initramfs.tar exists (empty if missing)
+if [[ ! -f "${REPO_ROOT}/bare-mc/initramfs.tar" ]]; then
+    echo "== Creating empty initramfs.tar"
+    tar -cf "${REPO_ROOT}/bare-mc/initramfs.tar" --files-from /dev/null
+fi
 
-echo "== Launching QEMU with $ISO"
+# Build a temporary ISO using GRUB
+ISO_DIR=$(mktemp -d)
+mkdir -p "$ISO_DIR/boot/grub"
+cp "${REPO_ROOT}/bare-mc/kernel.bin" "$ISO_DIR/boot/kernel.bin"
+cp "${REPO_ROOT}/bare-mc/initramfs.tar" "$ISO_DIR/boot/initramfs.tar"
+cat > "$ISO_DIR/boot/grub/grub.cfg" <<'EOF'
+# Ensure GRUB menu is displayed
+timeout_style=menu
+set timeout=3
+menuentry "Bare MC" {
+    multiboot2 /boot/kernel.bin
+    module2 /boot/initramfs.tar type=tar
+}
+EOF
 # Ensure required GRUB BIOS tools are present (grub2-install, grub2-mkrescue)
 if ! command -v grub2-install >/dev/null 2>&1; then
     echo "grub2-install not found, attempting to install grub2-pc..."
@@ -41,45 +55,11 @@ if ! command -v grub2-install >/dev/null 2>&1; then
         dnf install -y grub2-pc || { echo "Failed to install grub2-pc"; exit 1; }
     fi
 fi
+# Generate the ISO
+$GRUB_MKRESCUE_CMD -o "$ISO" "$ISO_DIR"
+# Cleanup temporary ISO directory
+rm -rf "$ISO_DIR"
 
-# Create a bootable virtual hard disk (ext3) if it does not exist
-VHD_BOOT="${REPO_ROOT}/bare-mc/vhd_boot.img"
-if [[ ! -f "$VHD_BOOT" ]]; then
-    echo "== Creating bootable virtual disk $VHD_BOOT"
-    # 256 MiB raw image
-    qemu-img create -f raw "$VHD_BOOT" 256M
-    # Partition it with an ext3 partition starting at 1 MiB
-    parted -s "$VHD_BOOT" mklabel msdos
-    parted -s "$VHD_BOOT" mkpart primary ext3 1MiB 100%
-    # Mark the partition as bootable so BIOS will attempt to boot it
-    parted -s "$VHD_BOOT" set 1 boot on
-    # Set up loop device with partition scanning
-    LOOPDEV=$(losetup -f --show -P "$VHD_BOOT")
-    # Format the primary partition as ext3
-    mkfs.ext3 "${LOOPDEV}p1"
-    # Mount the partition
-    MNT_DIR=$(mktemp -d)
-    mount "${LOOPDEV}p1" "$MNT_DIR"
-    # Install kernel and initramfs into /boot
-    mkdir -p "$MNT_DIR/boot/grub"
-    cp "${REPO_ROOT}/bare-mc/kernel.bin" "$MNT_DIR/boot/kernel.bin"
-    cp "${REPO_ROOT}/bare-mc/initramfs.tar" "$MNT_DIR/boot/initramfs.tar"
-    # Write a minimal GRUB config that loads the kernel and initramfs
-    cat > "$MNT_DIR/boot/grub/grub.cfg" <<'EOF'
-# Ensure GRUB menu is displayed
-timeout_style=menu
-set timeout=3
-menuentry "Bare MC" {
-    multiboot2 /boot/kernel.bin
-    module2 /boot/initramfs.tar type=tar
-}
-EOF
-    # Install GRUB onto the disk (BIOS mode)
-    grub2-install --target=i386-pc --boot-directory="$MNT_DIR/boot" "$LOOPDEV"
-    # Cleanup
-    umount "$MNT_DIR"
-    losetup -d "$LOOPDEV"
-    rm -rf "$MNT_DIR"
-fi
-# Launch QEMU, booting from the virtual hard disk
-qemu-system-x86_64 -hda "$VHD_BOOT" -boot c -m 512 -display gtk -net none
+echo "== Launching QEMU with $ISO"
+# Launch QEMU, booting from the ISO (GRUB menu)
+qemu-system-x86_64 -cdrom "$ISO" -boot d -m 512 -display gtk -net none
