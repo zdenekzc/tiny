@@ -1,50 +1,68 @@
 #!/bin/bash
-# build-toaruos.sh — builds ToaruOS from its sources, two ways:
+# build-toaruos.sh — builds ToaruOS from its sources, two ways (and two ISAs):
 #
-#   ./build-toaruos.sh docker   upstream method: util/build-in-docker.sh inside
-#                               docker.io/toaruos/build-tools:1.99.x
-#   ./build-toaruos.sh native   on this host with _import/gcc_local.tgz
+#   ./build-toaruos.sh docker         upstream method: util/build-in-docker.sh inside
+#                                     docker.io/toaruos/build-tools:1.99.x
+#   ./build-toaruos.sh native         on this host with _import/gcc_local.tgz
+#   ./build-toaruos.sh -a <mode>      arm64: image :aarch64, toolchain
+#                                     _import/gcc_arm64.tgz
 #
-# Both write a bootable ISO to _build/toaruos-<mode>/src/image.iso.
+# x86_64 writes a bootable ISO to _build/toaruos-<mode>/src/image.iso.
+# aarch64 has no ISO; it writes _build/toaruos-<mode>-aarch64/src/
+# {bootstub,misaka-kernel,ramdisk.igz,kernel8.img} (bootstub+kernel+initrd are
+# handed to QEMU via fw_cfg, kernel8.img is for a Raspberry Pi 400).
 #
-#   -j N   parallel make jobs for the native build (default: nproc; the docker
-#          variant uses the -j4 fixed in upstream util/build-in-docker.sh)
-#   -c     remove the build tree first (fresh source copy, toolchain, objects)
-#   -r     run docker/podman through sudo (see the podman note below)
-#   -h     this help
+#   -a      build the aarch64 target
+#   -j N    parallel make jobs for the native build (default: nproc; the docker
+#           variant uses the -j4 fixed in upstream util/build-in-docker*.sh)
+#   -c      remove the build tree first (fresh source copy, toolchain, objects)
+#   -r      run docker/podman through sudo (see the podman note below)
+#   -h      this help
 #
 # Environment:
 #   TOARU_REF   git tag or branch to build (default: v2.3.2)
 #   IMAGE       image for the docker variant
-#               (default: docker.io/toaruos/build-tools:1.99.x)
-#   GCC_TGZ     native toolchain archive (default: _import/gcc_local.tgz)
+#               (default: docker.io/toaruos/build-tools:1.99.x, -a: :aarch64)
+#   GCC_TGZ     native toolchain archive
+#               (default: _import/gcc_local.tgz, -a: _import/gcc_arm64.tgz)
 #   JOBS        same as -j
 #   ENGINE      docker|podman forces one for the docker variant
 #
-# The source tree is _build/toaruos-<mode>/src.  It is seeded from the cached
-# _import/download/toaruos-src when it is the requested ref (run-toaru.sh
-# already keeps v2.3.2 there) and cloned otherwise; the kuroko and bim
-# submodules are initialized in either case.  Nothing in _import/ is modified,
-# so the cached clone stays pristine.
+# The source tree is _build/toaruos-<mode>[-aarch64]/src.  It is seeded from
+# the cached _import/download/toaruos-src when it is the requested ref
+# (run-toaru.sh already keeps v2.3.2 there) and cloned otherwise; the kuroko
+# and bim submodules are initialized in either case.  Nothing in _import/ is
+# modified, so the cached clone stays pristine.
 #
-# docker variant: util/build-in-docker.sh in the image creates a user with the
-# UID that owns the source tree and runs make as that user.  That needs a
+# docker variant: util/build-in-docker*.sh in the image creates a user with
+# the UID that owns the source tree and runs make as that user.  That needs a
 # rootful engine.  Docker is rootful by default; rootless Podman cannot run
 # the script (it lacks the privilege for useradd and the workspace ownership
 # does not match), so with Podman pass -r to use the root podman storage.
 #
 # native variant: extracts GCC_TGZ (fetch it with ./fetch-gcc-local.sh), makes
 # util/local point at it, and runs the same make steps as the image:
-#   make util/local/bin/kuroko; make base/lib/libc.so; make -jN
-# The toolchain is gcc 10.3.0 for x86_64-pc-toaru and runs on the host (it is
-# a normal Linux binary).  Two adjustments are needed outside the image:
+#   make [ARCH=aarch64] util/local/bin/kuroko; ... base/lib/libc.so; make -jN
+# The toolchain is gcc 10.3.0 (x86_64-pc-toaru or aarch64-unknown-toaru, a
+# normal Linux binary either way).  Adjustments needed outside the image:
 #   * it was configured with --with-sysroot=/root/misaka/util/../base, a path
 #     that only exists under the container's bind mount, so CC is overridden
 #     with --sysroot=<source>/base;
 #   * as/ld are dynamically linked against libopcodes/libbfd, which are not on
-#     the default library path, so LD_LIBRARY_PATH points into the toolchain.
-# The host needs xorriso, mtools, dosfstools and gnu-efi/gnu-efi-devel (on
-# Fedora: dnf install xorriso mtools dosfstools gnu-efi gnu-efi-devel).
+#     the default library path, so LD_LIBRARY_PATH points into the toolchain;
+#   * kuroko is built by this script with -lm: the Makefile rule invokes cc
+#     without it and current gcc/glibc no longer resolves __builtin_floor.
+# x86_64 additionally needs xorriso, mtools, dosfstools and gnu-efi
+# (Fedora: dnf install xorriso mtools dosfstools gnu-efi gnu-efi-devel);
+# aarch64 builds no ISO and needs none of those.
+#
+# The aarch64 result runs headless with (from the src directory):
+#   qemu-system-aarch64 -M virt -cpu cortex-a72 -m 4G -smp 4 \
+#     -display none -serial mon:stdio -no-reboot -kernel bootstub \
+#     -append "root=/dev/ram0 migrate start=--headless" \
+#     -fw_cfg name=opt/org.toaruos.kernel,file=misaka-kernel \
+#     -fw_cfg name=opt/org.toaruos.initrd,file=ramdisk.igz
+# (the same thing as `make ARCH=aarch64 shell`, which needs util/local back).
 set -euo pipefail
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -52,12 +70,11 @@ BUILD=$DIR/_build
 CACHE=$DIR/_import/download/toaruos-src
 PLATFORM=${PLATFORM:-linux/amd64}
 TOARU_REF=${TOARU_REF:-v2.3.2}
-IMAGE=${IMAGE:-docker.io/toaruos/build-tools:1.99.x}
-GCC_TGZ=${GCC_TGZ:-$DIR/_import/gcc_local.tgz}
 
 jobs=${JOBS:-$(nproc)}
 clean=0
 use_sudo=0
+arch=x86_64
 
 usage() {
     awk 'NR > 1 && /^set -euo pipefail$/ { exit }
@@ -72,6 +89,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -j) [[ $# -ge 2 ]] || die "-j needs a value"; jobs=$2; shift 2 ;;
         -j*) jobs=${1#-j}; shift ;;
+        -a) arch=aarch64; shift ;;
         -c) clean=1; shift ;;
         -r) use_sudo=1; shift ;;
         -h) usage; exit 0 ;;
@@ -94,7 +112,29 @@ if (( use_sudo )) && ! command -v sudo > /dev/null 2>&1; then
 fi
 [[ $jobs =~ ^[0-9]+$ ]] && (( jobs > 0 )) || die "-j needs a positive number"
 
-MODE_DIR=$BUILD/toaruos-$mode
+# Per-arch defaults.  Both images are linux/amd64 (they are cross toolchains),
+# so PLATFORM does not change with -a.
+case $arch in
+    x86_64)
+        IMAGE=${IMAGE:-docker.io/toaruos/build-tools:1.99.x}
+        GCC_TGZ=${GCC_TGZ:-$DIR/_import/gcc_local.tgz}
+        cc=x86_64-pc-toaru
+        libsub=x86_64-pc-toaru
+        docker_script=util/build-in-docker.sh
+        dir_suffix=
+        ;;
+    aarch64)
+        IMAGE=${IMAGE:-docker.io/toaruos/build-tools:aarch64}
+        GCC_TGZ=${GCC_TGZ:-$DIR/_import/gcc_arm64.tgz}
+        cc=aarch64-unknown-toaru
+        libsub=aarch64-unknown-toaru
+        docker_script=util/build-in-docker-aarch64.sh
+        dir_suffix=-aarch64
+        ;;
+    *) die "unsupported arch '$arch'" ;;
+esac
+
+MODE_DIR=$BUILD/toaruos-$mode$dir_suffix
 SRC=$MODE_DIR/src
 
 if (( clean )); then
@@ -146,7 +186,7 @@ if [[ $mode == docker ]]; then
 
     if [[ ${engine[0]} == podman && ${#prefix[@]} -eq 0 ]] && \
        [[ $("${engine[@]}" info --format '{{.Host.Security.Rootless}}' 2> /dev/null) == true ]]; then
-        die "rootless podman cannot run util/build-in-docker.sh (useradd + workspace ownership);
+        die "rootless podman cannot run $docker_script (useradd + workspace ownership);
        re-run with -r to use the root podman storage"
     fi
 
@@ -162,7 +202,7 @@ if [[ $mode == docker ]]; then
 
     echo "== building in $IMAGE ..."
     "${engine[@]}" run --rm --platform "$PLATFORM" -v "$vol" -w /root/misaka \
-        -e LANG=C.UTF-8 "$IMAGE" util/build-in-docker.sh || die "build failed"
+        -e LANG=C.UTF-8 "$IMAGE" "$docker_script" || die "build failed"
 fi
 
 # ------------------------------------------------------------------- native
@@ -177,15 +217,24 @@ trap cleanup EXIT
 
 if [[ $mode == native ]]; then
     missing=()
-    for t in make cc python3 tar xorriso mkfs.fat mformat mcopy mmd; do
+    for t in make cc python3 tar; do
         command -v "$t" > /dev/null 2>&1 || missing+=("$t")
     done
-    [[ -f /usr/lib/crt0-efi-x86_64.o && -f /usr/lib/elf_x86_64_efi.lds ]] || missing+=("gnu-efi")
-    [[ -d /usr/include/efi && -f /usr/lib/libefi.a && -f /usr/lib/libgnuefi.a ]] || missing+=("gnu-efi-devel")
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        die "missing native build dependencies: ${missing[*]}
+    if [[ $arch == x86_64 ]]; then
+        # only the ISO build needs these
+        for t in xorriso mkfs.fat mformat mcopy mmd; do
+            command -v "$t" > /dev/null 2>&1 || missing+=("$t")
+        done
+        [[ -f /usr/lib/crt0-efi-x86_64.o && -f /usr/lib/elf_x86_64_efi.lds ]] || missing+=("gnu-efi")
+        [[ -d /usr/include/efi && -f /usr/lib/libefi.a && -f /usr/lib/libgnuefi.a ]] || missing+=("gnu-efi-devel")
+        if [[ ${#missing[@]} -gt 0 ]]; then
+            die "missing native build dependencies: ${missing[*]}
        Fedora: sudo dnf install xorriso mtools dosfstools gnu-efi gnu-efi-devel
        Debian: sudo apt install xorriso mtools dosfstools gnu-efi libgnuefi-dev"
+        fi
+    fi
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        die "missing native build dependencies: ${missing[*]}"
     fi
 
     if [[ ! -d $TOOLCHAIN ]]; then
@@ -194,8 +243,8 @@ if [[ $mode == native ]]; then
         mkdir -p "$MODE_DIR"
         tar -xzf "$GCC_TGZ" -C "$MODE_DIR" || die "tar"
     fi
-    [[ -x $TOOLCHAIN/bin/x86_64-pc-toaru-gcc ]] \
-        || die "unexpected toolchain layout: $TOOLCHAIN/bin/x86_64-pc-toaru-gcc is missing"
+    [[ -x $TOOLCHAIN/bin/$cc-gcc ]] \
+        || die "unexpected toolchain layout: $TOOLCHAIN/bin/$cc-gcc is missing"
 
     # util/activate.sh (called by the Makefile) puts util/local/bin on PATH.
     # A real directory here would swallow the symlink, so clear a stale one
@@ -220,18 +269,27 @@ if [[ $mode == native ]]; then
 
     # binutils (as, ld) need their shared libraries; gcc's configured
     # sysroot points at /root/misaka, which does not exist here.
-    libdir=$TOOLCHAIN/x86_64-pc-linux-gnu/x86_64-pc-toaru/lib
+    libdir=$TOOLCHAIN/x86_64-pc-linux-gnu/$libsub/lib
     [[ -d $libdir ]] || die "missing $libdir"
     export LD_LIBRARY_PATH=$libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-    cross_cc="x86_64-pc-toaru-gcc --sysroot=$SRC/base"
+    cross_cc="$cc-gcc --sysroot=$SRC/base"
 
     echo "== building libc ..."
-    make -C "$SRC" CC="$cross_cc" base/lib/libc.so || die "libc build failed"
+    make -C "$SRC" ARCH=$arch CC="$cross_cc" base/lib/libc.so || die "libc build failed"
     echo "== building ToaruOS (make -j$jobs) ..."
-    make -C "$SRC" CC="$cross_cc" -j"$jobs" || die "build failed"
+    make -C "$SRC" ARCH=$arch CC="$cross_cc" -j"$jobs" || die "build failed"
 fi
 
 # ------------------------------------------------------------------- result
-ISO=$SRC/image.iso
-[[ -f $ISO ]] || die "build finished but $ISO is missing"
-echo "== done: $ISO ($(du -h "$ISO" | cut -f1))"
+if [[ $arch == x86_64 ]]; then
+    ISO=$SRC/image.iso
+    [[ -f $ISO ]] || die "build finished but $ISO is missing"
+    echo "== done: $ISO ($(du -h "$ISO" | cut -f1))"
+else
+    artifacts=(bootstub misaka-kernel ramdisk.igz kernel8.img)
+    for f in "${artifacts[@]}"; do
+        [[ -f $SRC/$f ]] || die "build finished but $SRC/$f is missing"
+    done
+    echo "== done (in $SRC):"
+    (cd "$SRC" && du -h "${artifacts[@]}")
+fi
