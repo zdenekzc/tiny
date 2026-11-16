@@ -1,77 +1,42 @@
 #!/usr/bin/env bash
-# Updated test script for Fedora: uses grub2-mkrescue with explicit module path
-# and ensures a bootable ISO with a visible text GRUB menu.
+# Test script for the bare‑MC kernel built with GRUB.
+# Finds GRUB modules, builds the bare‑MC ISO, and boots it with QEMU.
 
-# Try to locate the i386-pc GRUB modules automatically.
-# Common locations on Fedora/RHEL based systems include:
-#   /usr/lib/grub/i386-pc
-#   /usr/lib/grub2/i386-pc
-#   /usr/share/grub/i386-pc
-# If none are found, grub2-mkrescue will fall back to its defaults.
+# Auto‑detect GRUB i386‑pc modules (common locations).
 GRUB_MODULES_DIR=""
-# Search a list of possible directories.
 for dir in /usr/lib/grub/i386-pc /usr/lib/grub2/i386-pc /usr/share/grub/i386-pc; do
-    if [[ -d "$dir" ]]; then
-        GRUB_MODULES_DIR="$dir"
-        break
-    fi
+    [[ -d "$dir" ]] && GRUB_MODULES_DIR="$dir" && break
 done
-# Build the command – include -d only when a directory was found.
 if [[ -n "$GRUB_MODULES_DIR" ]]; then
     GRUB_MKRESCUE_CMD="grub2-mkrescue -d \"$GRUB_MODULES_DIR\""
 else
     GRUB_MKRESCUE_CMD="grub2-mkrescue"
 fi
-# test-grub.sh — Boot ToaruOS via GRUB and auto-start mini-commander.
-#
-# This script builds ToaruOS (if not already built), extracts the kernel and
-# initrd, creates a GRUB bootable ISO that loads them, and runs QEMU with a
-# visible window.
 
 set -euo pipefail
-
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-BUILD_DIR="${REPO_ROOT}/_build"
-TOARU_SRC_DIR="${BUILD_DIR}/toaruos-native/src"
-ISO_PATH="${TOARU_SRC_DIR}/image.iso"
 
-# Ensure ToaruOS native build exists (with our modified startup script).
-if [[ ! -f "${ISO_PATH}" ]]; then
-    echo "== ToaruOS ISO not found, building native version..."
-    "${REPO_ROOT}/build-toaruos.sh" native
+# Ensure mini‑commander binary exists.
+if [[ ! -x "${REPO_ROOT}/_output/mc" ]]; then
+    echo "== Building mini‑commander ..."
+    "${REPO_ROOT}/mc-toaru/build.sh" mc
 fi
 
-# Extract kernel and ramdisk from the ISO.
-KERNEL_OUT="${BUILD_DIR}/toaruos-native/kernel"
-RAMDISK_OUT="${BUILD_DIR}/toaruos-native/ramdisk.igz"
-mkdir -p "${KERNEL_OUT}" "${RAMDISK_OUT}"
+# Build the bare‑MC kernel and ISO.
+make -C "${REPO_ROOT}/bare-mc"
 
-# Use isoinfo to extract raw files.
-isoinfo -R -i "${ISO_PATH}" -x /kernel > "${KERNEL_OUT}/kernel"
-isoinfo -R -i "${ISO_PATH}" -x /ramdisk.igz > "${RAMDISK_OUT}/ramdisk.igz"
+ISO="${REPO_ROOT}/bare-mc/bare-mc.iso"
+if [[ ! -f "$ISO" ]]; then
+    echo "Error: ISO not found at $ISO"
+    exit 1
+fi
 
-# Prepare GRUB directory structure.
-GRUB_DIR="${BUILD_DIR}/grub_toaruos"
-mkdir -p "${GRUB_DIR}/boot/grub"
-cp "${KERNEL_OUT}/kernel" "${GRUB_DIR}/boot/kernel"
-cp "${RAMDISK_OUT}/ramdisk.igz" "${GRUB_DIR}/boot/ramdisk.igz"
-
-# Create a simple GRUB configuration that loads the kernel and initrd.
-cat > "${GRUB_DIR}/boot/grub/grub.cfg" <<'EOF'
-set timeout=5
-menuentry "ToaruOS (mini-commander auto start)" {
-    multiboot /boot/kernel
-    module /boot/ramdisk.igz
-}
-EOF
-
-# Build the GRUB ISO.
-GRUB_ISO="${BUILD_DIR}/toaruos_grub.iso"
-# grub2-mkrescue must be on PATH.
-$GRUB_MKRESCUE_CMD -o "${GRUB_ISO}" "${GRUB_DIR}" > /dev/null
-
-echo "== GRUB ISO created at ${GRUB_ISO}"
-
-# Launch QEMU with a visible window.
-# Adjust RAM/CPU as needed.
-qemu-system-x86_64 -cdrom "${GRUB_ISO}" -m 1024 -smp 2 -display gtk
+echo "== Launching QEMU with $ISO"
+# Create a virtual hard disk (FAT32) if it does not exist
+VHD="${REPO_ROOT}/bare-mc/hd.img"
+if [[ ! -f "$VHD" ]]; then
+    echo "== Creating virtual FAT32 disk $VHD"
+    qemu-img create -f raw "$VHD" 128M
+    mkfs.fat -F 32 "$VHD"
+fi
+qemu-system-x86_64 -cdrom "$ISO" -boot d -m 512 -display gtk -net none -drive file="$VHD",format=raw,if=virtio
