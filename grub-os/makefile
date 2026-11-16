@@ -11,7 +11,7 @@ LDFLAGS = -m elf_i386 -T linker.ld -nostdlib
 
 HDRS = $(wildcard *.h)
 
-SRCS_C   = kernel.c ext2.c editor.c e1000.c rtl8139.c net.c ip.c tftp.c chainload.c libc.c
+SRCS_C   = kernel.c minicmd.c ext2.c editor.c e1000.c rtl8139.c net.c ip.c tftp.c chainload.c libc.c
 SRCS_CC  = tcp.cc
 SRCS_S   = boot.S
 OBJS = $(addprefix $(BUILD_DIR)/,$(SRCS_C:.c=.o) $(SRCS_CC:.cc=.o) $(SRCS_S:.S=.o))
