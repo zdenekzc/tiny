@@ -10,12 +10,15 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Directory containing the grub-os sources
 SRC_DIR="${REPO_ROOT}/grub-os"
 
+# All build artifacts go here (outside the source tree)
+BUILD_DIR="${REPO_ROOT}/_build/grub-os"
+
 # Build the OS ISO using the provided makefile.
 echo "== Building OS ISO with ${SRC_DIR}"
 make -C "$SRC_DIR" iso
 
 # The resulting ISO is placed in the source directory by the makefile.
-ISO="${SRC_DIR}/twopane_ext2.iso"  # produced by `make iso` in grub-os/
+ISO="${BUILD_DIR}/twopane_ext2.iso"  # produced by `make iso` in grub-os/
 
 if [[ ! -f "$ISO" ]]; then
     echo "Error: ISO not found at $ISO"
@@ -23,8 +26,9 @@ if [[ ! -f "$ISO" ]]; then
 fi
 
 # Create a small ext2 disk with sample files for the mini commander (once).
-DISK="${SRC_DIR}/disk.img"
+DISK="${BUILD_DIR}/disk.img"
 if [[ ! -f "$DISK" ]]; then
+    mkdir -p "$BUILD_DIR"
     echo "== Creating ext2 test disk with sample files"
     CONTENT_DIR=$(mktemp -d)
     mkdir -p "$CONTENT_DIR/docs"
