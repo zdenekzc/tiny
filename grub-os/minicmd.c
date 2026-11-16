@@ -321,9 +321,36 @@ static void draw_panel(McPanel *p, int active) {
     }
 }
 
+static void draw_fkeybar(void);
+
 static void draw_all(void) {
     draw_panel(&left_panel, active_panel == &left_panel);
     draw_panel(&right_panel, active_panel == &right_panel);
+    draw_fkeybar();
+}
+
+/* bottom F1..F10 key bar (Norton Commander style), VGA row VGA_H-1 */
+static void draw_fkeybar(void) {
+    static const char *labels[10] = {
+        "Help", "Menu", "View", "Edit", "Copy",
+        "Move", "MkDir", "Del", "Menu", "Quit"
+    };
+    int y = VGA_H - 1;
+    int x = 0;
+    for (int i = 0; i < 10; i++) {
+        /* key number, bright */
+        if (i < 9) {
+            vga_putc_at((char)('1' + i), x++, y, COLOR(0xF,0x0));
+        } else {
+            vga_putc_at('1', x++, y, COLOR(0xF,0x0));
+            vga_putc_at('0', x++, y, COLOR(0xF,0x0));
+        }
+        vga_putc_at(' ', x++, y, COLOR(0x7,0x0));
+        const char *l = labels[i];
+        while (*l) vga_putc_at(*l++, x++, y, COLOR(0x7,0x0));
+        while ((i < 9 && (x % 8) != 0) || (i == 9 && x < VGA_W))
+            vga_putc_at(' ', x++, y, COLOR(0x7,0x0));
+    }
 }
 
 /* ---------- main loop ---------- */
@@ -332,8 +359,8 @@ void minicmd_run(void) {
     memset(&left_panel, 0, sizeof(left_panel));
     memset(&right_panel, 0, sizeof(right_panel));
 
-    left_panel.x = 0;  left_panel.y = 2; left_panel.w = 40; left_panel.h = 23;
-    right_panel.x = 40; right_panel.y = 2; right_panel.w = 40; right_panel.h = 23;
+    left_panel.x = 0;  left_panel.y = 2; left_panel.w = 40; left_panel.h = 22;
+    right_panel.x = 40; right_panel.y = 2; right_panel.w = 40; right_panel.h = 22;
     left_panel.cur_ino = 2; right_panel.cur_ino = 2;
     strncpy(left_panel.path, "/", sizeof(left_panel.path) - 1);
     strncpy(right_panel.path, "/", sizeof(right_panel.path) - 1);

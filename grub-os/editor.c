@@ -83,9 +83,9 @@ static void editor_backspace(void) {
 
 void editor_run(char *buf, size_t len) {
     editor_load(buf, len);
+    editor_draw();
 
     for (;;) {
-        editor_draw();
         if (!kbd_has_data()) continue;
         uint8_t sc = kbd_read_scancode();
 
@@ -108,5 +108,9 @@ void editor_run(char *buf, size_t len) {
             char c = scancode_to_char(sc);
             if (c >= 32 && c <= 126) editor_insert_char(c);
         }
+
+        /* Redraw only after an input event — continuous repainting in the
+         * idle loop caused heavy flicker. */
+        editor_draw();
     }
 }
