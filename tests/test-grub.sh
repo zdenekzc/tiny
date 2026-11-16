@@ -2,13 +2,25 @@
 # Updated test script for Fedora: uses grub2-mkrescue with explicit module path
 # and ensures a bootable ISO with a visible text GRUB menu.
 
-# Ensure required GRUB modules are available (i386-pc for BIOS boot).
-# Adjust GRUB_MODULES_DIR if your distro puts them elsewhere.
-GRUB_MODULES_DIR="/usr/lib/grub/i386-pc"
-if [[ ! -d "$GRUB_MODULES_DIR" ]]; then
-    echo "Error: GRUB i386-pc modules not found at $GRUB_MODULES_DIR"
-    echo "Install grub2-pc-bin (Fedora) or appropriate package."
-    exit 1
+# Try to locate the i386-pc GRUB modules automatically.
+# Common locations on Fedora/RHEL based systems include:
+#   /usr/lib/grub/i386-pc
+#   /usr/lib/grub2/i386-pc
+#   /usr/share/grub/i386-pc
+# If none are found, grub2-mkrescue will fall back to its defaults.
+GRUB_MODULES_DIR=""
+# Search a list of possible directories.
+for dir in /usr/lib/grub/i386-pc /usr/lib/grub2/i386-pc /usr/share/grub/i386-pc; do
+    if [[ -d "$dir" ]]; then
+        GRUB_MODULES_DIR="$dir"
+        break
+    fi
+done
+# Build the command – include -d only when a directory was found.
+if [[ -n "$GRUB_MODULES_DIR" ]]; then
+    GRUB_MKRESCUE_CMD="grub2-mkrescue -d \"$GRUB_MODULES_DIR\""
+else
+    GRUB_MKRESCUE_CMD="grub2-mkrescue"
 fi
 # test-grub.sh — Boot ToaruOS via GRUB and auto-start mini-commander.
 #
@@ -56,7 +68,7 @@ EOF
 # Build the GRUB ISO.
 GRUB_ISO="${BUILD_DIR}/toaruos_grub.iso"
 # grub2-mkrescue must be on PATH.
-grub2-mkrescue -d "$GRUB_MODULES_DIR" -o "${GRUB_ISO}" "${GRUB_DIR}" > /dev/null
+$GRUB_MKRESCUE_CMD -o "${GRUB_ISO}" "${GRUB_DIR}" > /dev/null
 
 echo "== GRUB ISO created at ${GRUB_ISO}"
 
