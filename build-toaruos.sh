@@ -30,7 +30,7 @@
 #
 # The source tree is _build/toaruos-<mode>[-aarch64]/src.  It is seeded from
 # the cached _import/download/toaruos-src when it is the requested ref
-# (run-toaru.sh already keeps v2.3.2 there) and cloned otherwise; the kuroko
+# (tests/build-toaru.sh or tests/run-toaru.sh already keep v2.3.2 there) and cloned otherwise; the kuroko
 # and bim submodules are initialized in either case.  Nothing in _import/ is
 # modified, so the cached clone stays pristine.
 #

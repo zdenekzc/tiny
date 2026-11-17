@@ -171,10 +171,10 @@ knihovny ToaruOS (`lib/yutani.c`, `hashmap.c`, `list.c`, `pex.c`, `kbd.c`,
 `markup_text.c` a vestavěné `png.c`/`jpeg.c`/`inflate.c`) a ToaruOS libc;
 za běhu tedy nepotřebuje žádné `.so` knihovny.
 
-`tests/run-toaru.sh` integruje IDE do ramdisku:
+`tests/build-toaru.sh` integruje IDE do ramdisku:
 
 ```sh
-./tests/run-toaru.sh
+./tests/build-toaru.sh
 # v ToaruOS:
 /extras/nuklear-ide
 ```

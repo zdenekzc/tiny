@@ -1,6 +1,6 @@
 /* hello.c — built on the HOST by gcc-toaru.sh, not by TinyCC.
  *
- * tests/run-toaru.sh builds it into /share/gcc_hello and the control VM runs
+ * tests/build-toaru.sh builds it into /share/gcc_hello and the control VM runs
  * it: that verifies the host gcc -> GNU ld (-Ttext-segment) -> toaru-elfpad.py
  * route, whose only ToaruOS-specific parts are the headers, crt0.o/libc.a
  * from the ISO and the image layout.  It also means the guest can tell the

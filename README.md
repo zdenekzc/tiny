@@ -19,8 +19,13 @@ One command downloads, builds and runs **ToaruOS 2.3.2** in QEMU with all of
 the above.
 
 ```bash
-./tests/run-toaru.sh
+./tests/build-toaru.sh
 ```
+
+A lighter variant exists: `./tests/run-toaru.sh` downloads the official
+ToaruOS 2.3.2 ISO and boots it **unmodified** — the payload (tcc, mc,
+examples, sources) travels on a separate ext2 disk that the guest mounts as
+`/share` by hand. No custom ISO, no ramdisk repacking, no NetSurf/IDE.
 
 The first run downloads the ISO, the ToaruOS sources and TinyCC and builds
 everything (a few minutes); later runs only fill in what is missing. A QEMU
@@ -30,7 +35,7 @@ serial line is logged in as `root@livecd`; the graphical session as `local`
 (password `local`).
 
 Nothing under `_build/`, `_output/` or `_import/` is irreplaceable: they can be
-deleted at any time and `run-toaru.sh` will download and build everything
+deleted at any time and `build-toaru.sh` will download and build everything
 again.  `_import/` holds the downloads (ISO, source clones, tarballs), so
 deleting only `_build/` does not force anything to be downloaded again.
 
@@ -38,7 +43,7 @@ deleting only `_build/` does not force anything to be downloaded again.
 
 ## What the script does
 
-`tests/run-toaru.sh` performs these steps (only when needed — anything already
+`tests/build-toaru.sh` performs these steps (only when needed — anything already
 built in `_build/` or `_output/` is not downloaded or rebuilt):
 
 1. downloads `image.iso` (ToaruOS 2.3.2) into `_import/download/`,
@@ -83,7 +88,7 @@ The verification VM (step 7) can be skipped with `DEMO=0`, the QEMU window with
 
 ## Inside ToaruOS
 
-`run-toaru.sh` waits for the guest and mounts the shared disk automatically, so
+`build-toaru.sh` waits for the guest and mounts the shared disk automatically, so
 `/share` is ready in the Terminal. If you start the VM by hand with
 `./toaru-vm.sh start`, mount it first:
 
@@ -128,7 +133,7 @@ sysroot that `mktcc.sh` builds (`_build/tcc-toaru/lib`).
 
 ```sh
 ./gcc-toaru.sh -o user/hello tests/gcc/hello.c   # gcc + GNU ld + toaru-elfpad.py
-./tests/run-toaru.sh                             # packs user/ into /share
+./tests/build-toaru.sh                             # packs user/ into /share
 # inside the guest:
 /share/hello
 ```
@@ -159,7 +164,7 @@ Notes:
   bytes before a page boundary and the kernel maps a segment page by page from
   `p_vaddr`.
 
-The control VM checks this route as well: `tests/run-toaru.sh` builds
+The control VM checks this route as well: `tests/build-toaru.sh` builds
 `tests/gcc/hello.c` with the host gcc into `/share/gcc_hello` and runs it.
 TinyCC remains the compiler that runs *inside* ToaruOS.
 
@@ -186,7 +191,7 @@ There is also a native **ToaruOS** build: a decorated, resizable Yutani window
 (with the standard title bar and close button) and a software Nuklear
 rasterizer, statically linked with ToaruOS libc and the Yutani client sources.
 Nuklear has no terminal backend, so there is no text-mode variant.
-`tests/run-toaru.sh` builds it and installs it as `/extras/nuklear-ide`; it
+`tests/build-toaru.sh` builds it and installs it as `/extras/nuklear-ide`; it
 can also be built standalone with `make -C nuklear-ide toaru`. The in-guest
 compiler is `/extras/tcc/bin/tcc`.
 
@@ -253,7 +258,7 @@ The same variables can be passed to `toaru-vm.sh start`.
 
 ```
 tiny/
-├─ tests/run-toaru.sh      # one-click: download, build, run
+├─ tests/build-toaru.sh      # one-click: download, build, run
 ├─ tests/bench-boot.sh     # ISO vs -kernel/-initrd boot timing
 ├─ tests/examples/*.c      # sample programs (copied to /share)
 ├─ tests/gcc/hello.c       # program built by the host gcc (into /share)
@@ -266,7 +271,7 @@ tiny/
 ├─ nuklear-ide/            # small Nuklear IDE (Linux + native ToaruOS)
 │   ├─ main.c              # UI, editor tabs, file tree, async build/run
 │   ├─ toaru_backend.h     # Yutani window + software Nuklear rasterizer
-│   ├─ toaru/build.sh      # static ToaruOS build (run-toaru installs it)
+│   ├─ toaru/build.sh      # static ToaruOS build (build-toaru installs it)
 │   ├─ demo/hello.c        # F5 demo program
 │   ├─ fetch-nuklear.sh    # re-download the headers from upstream
 │   └─ _import/            # downloaded nuklear.h + nuklear_glfw_gl2.h
@@ -320,13 +325,13 @@ without them too. Without either tool the script only prints a warning.
 | Command | Effect |
 |---|---|
 | `rm -rf _build` | deletes downloads and images; the next run fetches and builds everything again |
-| `rm -rf _output` | deletes `mc`, `ttyprobe` and the staging tree; `run-toaru.sh` rebuilds them |
+| `rm -rf _output` | deletes `mc`, `ttyprobe` and the staging tree; `build-toaru.sh` rebuilds them |
 | `./mc-toaru/build.sh mc` | rebuilds only mini-commander (after a change in `toaru/` or the patch) |
 | `./mc-toaru/build.sh clean` | deletes `_output` |
 | `rm -rf _tmp/*` | empties the scratch directory |
 
 After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
-`run-toaru.sh` only builds `mc` when the binary is missing.
+`build-toaru.sh` only builds `mc` when the binary is missing.
 
 ## Port notes (what had to be solved)
 
@@ -345,7 +350,7 @@ After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
   `ESC [ n ~`. The shim's `decode_escape()` originally compared those bytes with
   an off-by-one offset, so every function key failed and its tail leaked as text
   (`F1` → `P`, `F9` → `20~`). The parser now keeps the bytes following ESC in
-  one buffer and matches the whole sequence; `tests/run-toaru.sh` checks that
+  one buffer and matches the whole sequence; `tests/build-toaru.sh` checks that
   F9/F10 do not leak and that F10 quits mc.
 - **Mouse**: the shim enables SGR mouse reporting (`ESC[?1006`), but ToaruOS
   actually sends the reports as `ESC[<b;x;yM` / `…m`; those have to be parsed

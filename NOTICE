@@ -24,10 +24,10 @@ redistribute their sources:
 
 * ToaruOS 2.3.2 — https://github.com/klange/toaruos
   License: BSD-2-Clause.
-  The release ISO and the sources are downloaded by tests/run-toaru.sh; they
+  The release ISO and the sources are downloaded by tests/run-toaru.sh or tests/build-toaru.sh; they
   are not part of this repository.
 
 * Nuklear — https://github.com/Immediate-Mode-UI/Nuklear
   License: public domain / MIT.
-  The single header is downloaded by tests/run-toaru.sh; it is not part of
+  The single header is downloaded by tests/run-toaru.sh or tests/build-toaru.sh; it is not part of
   this repository.

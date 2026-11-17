@@ -29,7 +29,8 @@
 set -u
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# The ISO is downloaded into _import/download by tests/run-toaru.sh; keep
+# The ISO is downloaded into _import/download by tests/run-toaru.sh or
+# tests/build-toaru.sh; keep
 # accepting the old _build/download copy for existing workspaces.
 if [[ -z ${ISO:-} ]]; then
     for f in "${DIR}/_import/download/image.iso" \
@@ -93,7 +94,7 @@ do_start() {
     rm -f "$FIFO" "$QMPS"; : > "$OUT"; : > "$SER0"; mkfifo "$FIFO"
 
     # Keep the FIFO open for writing so the guest does not wait for EOF on every command.
-    # Stderr/stdin must be redirected away: when someone calls "run-toaru.sh | something",
+    # Stderr/stdin must be redirected away: when someone calls "build-toaru.sh | something",
     # the holder would inherit the write end of that pipe and the waiting reader (tail)
     # would never see EOF — the script would "hang" for two hours even after the work is done.
     sleep 7200 > "$FIFO" 2>/dev/null < /dev/null &
@@ -127,7 +128,7 @@ do_start() {
     # VISIBLE=1 opens a QEMU window (gtk/sdl) instead of -display none.  HEADLESS=0
     # lets ToaruOS boot graphically (yutani + terminal).  In that mode
     # 99_runstart.sh execs the compositor instead of getty, so ttyS1 stays
-    # silent; commands must be typed into the graphical Terminal (run-toaru.sh
+    # silent; commands must be typed into the graphical Terminal (build-toaru.sh
     # does that with the QEMU monitor's sendkey).
     local -a display=(-display none) bootmode=()
     [[ $VISIBLE == 1 ]] && display=(-display "$DISPLAY_BACKEND")

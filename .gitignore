@@ -12,3 +12,8 @@ _tmp/
 *.iso
 .DS_Store
 nuklear-ide/nuklear-ide.bin
+
+# bare-mc build artifacts (only linker.ld is tracked)
+bare-mc/initramfs.tar
+bare-mc/kernel.bin
+bare-mc/vhd_boot.img

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# run-toaru-arm64.sh — one-click start of ToaruOS ARM64 in QEMU with a visible window.
+# build-toaru-arm64.sh — one-click start of ToaruOS ARM64 in QEMU with a visible window.
 #
-#   ./tests/run-toaru-arm64.sh
+#   ./tests/build-toaru-arm64.sh
 #
 # What the script does:
 #   1. Builds the ARM64 ToaruOS images if they are missing (native build).
@@ -9,7 +9,7 @@
 #   3. Opens a window (GTK) so the user can see the OS running.
 #
 # The script is intended for use in CI or local testing. It mirrors the
-# functionality of tests/run-toaru.sh for x86_64, but uses the aarch64 artefacts
+# functionality of tests/build-toaru.sh for x86_64, but uses the aarch64 artefacts
 # produced by build-toaruos.sh -a.
 
 set -euo pipefail

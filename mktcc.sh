@@ -149,15 +149,19 @@ done
 
 # ------------------------------------------- 5b. tcc that runs INSIDE ToaruOS
 # The cross compiler is not portable: it needs Linux.  That is why tcc.c is
-# compiled once more, this time as an image for ToaruOS.  The result is shipped in
-# /extras/tcc (inside the ramdisk, run-toaru.sh) and is run in the guest:
+# compiled once more, this time as an image for ToaruOS.  Two variants are
+# built, differing only in the compiled-in default path:
 #
-#   /extras/tcc/bin/tcc -o /hello /hello.c
+#   tcc-guest        CONFIG_TCCDIR=/extras/tcc  (ramdisk, tests/build-toaru.sh):
+#       /extras/tcc/bin/tcc -o /hello /hello.c
+#   tcc-guest-share  CONFIG_TCCDIR=/share/tcc   (ext2 share disk,
+#                                                     tests/run-toaru.sh):
+#       /share/tcc/bin/tcc -o /hello /share/hello.c
 #
-# -DCONFIG_TCCDIR="/extras/tcc" is the default path, so inside the guest there is no
-# need for -B; files are looked up in /extras/tcc (include/, lib/).  The cross sysroot
+# CONFIG_TCCDIR is the default path, so inside the guest there is no need for
+# -B; files are looked up in the directory (include/, lib/).  The cross sysroot
 # has the libraries directly in the -B directory, but for the guest we use the same
-# layout as a normal sysroot (/extras/tcc/lib), which is why CRT and LIBPATHS are overridden.
+# layout as a normal sysroot (lib/), which is why CRT and LIBPATHS are overridden.
 # -DTOARU_TCC_NO_NATIVE disables -run: the ToaruOS libc has no mmap/mprotect, so
 # tcc would have no way to map code (see tcc.h).  guest-compat.c supplies strtold
 # and ldexpl, which are missing from the ToaruOS libc.
@@ -170,6 +174,16 @@ done
     || die "compile tcc for ToaruOS (tcc-guest)"
 chmod 755 "$OUT/tcc-guest"
 echo "tcc-guest: $(stat -c%s "$OUT/tcc-guest") B"
+
+"$TCC" -B"$LIB" -DTOARU_TCC_NO_NATIVE \
+    -DCONFIG_TCCDIR='"/share/tcc"' \
+    -DCONFIG_TCC_CRTPREFIX='"{B}/lib"' \
+    -DCONFIG_TCC_LIBPATHS='"{B}/lib"' \
+    -I"$GEN" -I"$SRC" -o "$OUT/tcc-guest-share" \
+    "$SRC/tcc.c" "$DIR/tcc/toaru/guest-compat.c" \
+    || die "compile tcc for ToaruOS (tcc-guest-share)"
+chmod 755 "$OUT/tcc-guest-share"
+echo "tcc-guest-share: $(stat -c%s "$OUT/tcc-guest-share") B"
 
 # Requirements an image has to meet before the ToaruOS kernel even tries to run
 # it (measured with our own probe images, README §3b and §5g).
