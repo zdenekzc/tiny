@@ -167,8 +167,10 @@ Pokud by budoucí libc přidala další varianty (`__aarch64_cas*`,
 
 ## 4. Ověření v guestu
 
-Payload se nabalí do kopie release ramdisku (přesně jako `mc-toaru/mkiso.sh`
-na x86 — jen bez ISO, aarch64 bootuje přímo z fw_cfg):
+Payload se nabalí do kopie release ramdisku — **`tests/run-arm64.sh` to dělá
+samo** (sestaví tcc přes `mktcc-aarch64.sh`, přebalí ramdisk do
+`_build/ramdisk-a64.tgz` a bootuje jej), takže ruční postup níže je potřeba
+jen při ručním ladění:
 
 ```
 /extras/tcc/{bin/tcc, lib/{crt*.o,libc.a,libtcc1.a}, include/}

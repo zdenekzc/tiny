@@ -10,9 +10,14 @@
 #      into _import/download/ and extracts bootstub + misaka-kernel +
 #      ramdisk.igz (a local ./scripts/build-toaruos.sh -a native build is
 #      used instead only when the release cannot be downloaded),
-#   2. starts a HEADLESS (no window) control VM on the serial line and
-#      verifies that the guest reaches the login prompt and answers commands,
-#   3. starts a VISIBLE ToaruOS ARM64 in QEMU and leaves it running.
+#   2. builds TinyCC for aarch64 ToaruOS (scripts/mktcc-aarch64.sh) and
+#      repacks the ramdisk with the payload: /extras/tcc (guest tcc + whole
+#      sysroot), /extras/examples with the sample sources, a cross-compiled
+#      /extras/hello and a /bin/tcc symlink (see tcc/toaru/README-aarch64.md),
+#   3. starts a HEADLESS (no window) control VM on the serial line and
+#      verifies that the guest reaches the login prompt, answers commands
+#      and compiles/runs tcc_hello.c with the in-guest tcc,
+#   4. starts a VISIBLE ToaruOS ARM64 in QEMU and leaves it running.
 #
 # Differences from the x86_64 run-toaru.sh, dictated by the aarch64 port:
 #   - no ISO exists for aarch64: bootstub + misaka-kernel + ramdisk.igz are
@@ -102,6 +107,66 @@ for f in bootstub misaka-kernel ramdisk.igz; do
 done
 echo "== artefacts: ${SRC}"
 
+# --------------------------------------------- 2) payload inside the ramdisk
+# The guest gets the same /extras treatment as the x86_64 ISO: a guest tcc
+# with the whole sysroot under /extras/tcc (plus a /bin/tcc symlink), the
+# example sources and a cross-compiled hello.  The stock release ramdisk is
+# repacked into _build/ramdisk-a64.tgz; the kernel and bootstub stay stock.
+TCC_A64="${BUILD_DIR}/tcc-toaru-aarch64"
+RAMDISK_A64="${BUILD_DIR}/ramdisk-a64.tgz"
+PUSH_A64="${BUILD_DIR}/push-a64"
+
+if [[ ! -x "${TCC_A64}/tcc-guest-aarch64" || ! -f "${TCC_A64}/lib/libtcc1.a" ]]; then
+    echo "== building TinyCC for aarch64 ToaruOS ..."
+    "${REPO_ROOT}/scripts/mktcc-aarch64.sh" || die "mktcc-aarch64.sh"
+fi
+
+if [[ ! -s "${RAMDISK_A64}" || "${SRC}/ramdisk.igz" -nt "${RAMDISK_A64}" ]]; then
+    echo "== preparing the ramdisk payload (tcc + examples) ..."
+    rm -rf "${PUSH_A64}"
+    W=$(mktemp -d "${BUILD_DIR}/a64payload.XXXXXX")
+    gzip -dc "${SRC}/ramdisk.igz" | tar -xf - -C "${W}"
+    mkdir -p "${W}/extras/tcc/bin" "${W}/extras/tcc/lib" "${W}/extras/examples"
+    install -m 755 "${TCC_A64}/tcc-guest-aarch64" "${W}/extras/tcc/bin/tcc"
+    install -m 644 "${TCC_A64}/lib/crt0.o" "${TCC_A64}/lib/crti.o" \
+                   "${TCC_A64}/lib/crtn.o" "${TCC_A64}/lib/libc.a" \
+                   "${TCC_A64}/lib/libtcc1.a" "${W}/extras/tcc/lib/"
+    cp -a "${TCC_A64}/lib/include" "${W}/extras/tcc/include"
+    cp "${REPO_ROOT}/tests/examples/"*.c "${W}/extras/examples/"
+    cp "${REPO_ROOT}/tcc/toaru/test.c" "${W}/extras/examples/tcc_test.c"
+    cat > "${W}/extras/examples/README.txt" <<'GUEST_EOF'
+Example sources for TinyCC
+==========================
+
+Run them with:
+
+    tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
+    /extras/compile_examples.sh
+GUEST_EOF
+    # a cross-compiled hello: works even before any guest-side compilation
+    "${TCC_A64}/bin/aarch64-toaru-tcc" -o "${W}/extras/hello" \
+        "${REPO_ROOT}/tests/examples/tcc_hello.c" 2>/dev/null \
+        || die "cross tcc hello"
+    chmod 755 "${W}/extras/hello"
+    ln -s /extras/tcc/bin/tcc "${W}/bin/tcc"
+    cat > "${W}/extras/compile_examples.sh" <<'GUEST_EOF'
+#!/bin/sh
+# Compiles and runs all *.c in /extras/examples with /bin/tcc.  Output goes
+# to /tmp so nothing is written to the ramdisk.
+for src in /extras/examples/*.c; do
+    name=$(basename "$src" .c)
+    echo "== $src"
+    /bin/tcc -o "/tmp/$name" "$src"
+    if stat -q "/tmp/$name" then "/tmp/$name"
+done
+GUEST_EOF
+    chmod 755 "${W}/extras/compile_examples.sh"
+    ( cd "${W}" && find . -mindepth 1 -maxdepth 1 -printf '%P\0' |
+        tar --null -cf - -T - ) | gzip -9 -n > "${RAMDISK_A64}"
+    rm -rf "${W}"
+fi
+echo "== ramdisk: ${RAMDISK_A64}"
+
 # ------------------------------------------------------- 2) QEMU helpers
 # toaru-vm.sh is x86_64-only; here QEMU runs directly and the serial line is
 # a pipe: the guest writes to <p>.out, commands are written into <p>.in.
@@ -129,7 +194,7 @@ qemu_start() {   # qemu_start <visible 0|1> <logfile>
         "${display[@]}" -no-reboot -d guest_errors \
         -kernel "${SRC}/bootstub" \
         "${append[@]}" \
-        -fw_cfg name=opt/org.toaruos.initrd,file="${SRC}/ramdisk.igz" \
+        -fw_cfg name=opt/org.toaruos.initrd,file="${RAMDISK_A64}" \
         -fw_cfg name=opt/org.toaruos.kernel,file="${SRC}/misaka-kernel" \
         "${extra[@]}" \
         -serial pipe:"${WORK}/serial" \
@@ -173,7 +238,7 @@ wait_for() {      # wait_for <regex> [timeout s] - watch the serial log
 # ------------------------------------------------------- 3) automatic check
 demo() {
     local rc=0
-    echo "== starting the control (headless) ToaruOS ARM64 ..."
+    echo "== starting the control ToaruOS ARM64 ..."
     qemu_start 0 "${WORK}/qemu-check.log"
 
     # The guest takes a while to decompress the ramdisk and start init.
@@ -192,10 +257,25 @@ demo() {
         return $rc
     fi
 
+    # The payload works: the cross-built hello first, then the in-guest tcc
+    # compiling tcc_hello.c by itself (tcg emulation is slow — long timeout).
+    serial_send '/extras/hello'
+    if ! wait_for '55, argc = 1' 60; then
+        echo "  *** /extras/hello (cross-compiled) did not run"
+        rc=1
+        return $rc
+    fi
+    serial_send '/bin/tcc -o /tmp/tcc_hello /extras/examples/tcc_hello.c ; /tmp/tcc_hello'
+    if ! wait_for '55, argc = 1' 180; then
+        echo "  *** the in-guest tcc did not compile/run tcc_hello.c"
+        rc=1
+        return $rc
+    fi
+
     qemu_stop
 
     if [[ $rc == 0 ]]; then
-        echo "== check OK: ToaruOS ARM64 boots and answers on the serial line"
+        echo "== check OK: ToaruOS ARM64 boots, answers, and the in-guest tcc works"
     else
         echo "== check FOUND A PROBLEM (see above)"
     fi

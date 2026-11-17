@@ -42,8 +42,20 @@ need gcc
 need unzip
 need python3
 
-[[ -d $SRC ]] || die "missing TinyCC clone $SRC — run ./scripts/mktcc.sh first"
+if [[ ! -d $SRC ]]; then
+    echo "downloading TinyCC (repo.or.cz/tinycc) ..."
+    mkdir -p "$IMPORT"
+    git clone --depth 50 https://repo.or.cz/tinycc.git "$SRC" > /dev/null || die "git clone"
+fi
 git -C "$SRC" rev-parse -q --verify HEAD > /dev/null || die "$SRC is not a git clone"
+
+# the ToaruOS patch must be applied (it is shared with the x86_64 mktcc.sh)
+if git -C "$SRC" diff --quiet -- tcc.h tccpp.c tccelf.c tccgen.c libtcc.c \
+       x86_64-link.c arm64-link.c include/tccdefs.h; then
+    echo "applying tcc-toaru.patch ..."
+    git -C "$SRC" apply --whitespace=nowarn "$DIR/tcc/toaru/tcc-toaru.patch" \
+        || die "git apply tcc-toaru.patch"
+fi
 
 # ------------------------------------------------- 1) sysroot from the release
 if [[ ! -f $LIB/libc.a ]]; then
