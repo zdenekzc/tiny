@@ -319,3 +319,38 @@ index 5229f3e..6be18b0 100644
  #define ELF_PAGE_SIZE  0x1000
  
  #define PCRELATIVE_DLLPLT 1
+@@ -35,6 +35,7 @@ ST_FUNC int code_reloc (int reloc_type)
+         case R_AARCH64_MOVW_UABS_G2_NC:
+         case R_AARCH64_MOVW_UABS_G3:
+         case R_AARCH64_ADR_PREL_PG_HI21:
++        case R_AARCH64_ADR_PREL_LO21:
+         case R_AARCH64_ADD_ABS_LO12_NC:
+         case R_AARCH64_ADR_GOT_PAGE:
+         case R_AARCH64_LD64_GOT_LO12_NC:
+@@ -71,6 +72,7 @@ ST_FUNC int gotplt_entry_type (int reloc_type)
+         case R_AARCH64_MOVW_UABS_G2_NC:
+         case R_AARCH64_MOVW_UABS_G3:
+         case R_AARCH64_ADR_PREL_PG_HI21:
++        case R_AARCH64_ADR_PREL_LO21:
+         case R_AARCH64_ADD_ABS_LO12_NC:
+         case R_AARCH64_LDST128_ABS_LO12_NC:
+         case R_AARCH64_LDST64_ABS_LO12_NC:
+@@ -245,6 +247,18 @@ ST_FUNC void relocate(TCCState *s1, ElfW_Rel *rel, int type, unsigned char *ptr,
+             write32le(ptr, ((read32le(ptr) & 0xffe0001f) |
+                             (val >> 48 & 0xffff) << 5));
+             return;
++        case R_AARCH64_ADR_PREL_LO21: {
++            /* gcc's small-model `adr x0, main` (aarch64 crt0.o): the whole
++               PC-relative offset is encoded, not a page like in ADRP.  The
++               immediate layout is the same (immlo bits 30:29, immhi 23:5),
++               only the opcode differs, and the mask below keeps it. */
++            int64_t off = val - addr;
++            if ((uint64_t)(off + ((uint64_t)1 << 20)) >> 21)
++                tcc_error_noabort("R_AARCH64_ADR_PREL_LO21 relocation failed");
++            write32le(ptr, ((read32le(ptr) & 0x9f00001f) |
++                            (off & 0x1ffffc) << 3 | (off & 3) << 29));
++            return;
++        }
+         case R_AARCH64_ADR_PREL_PG_HI21: {
+             uint64_t off = (val >> 12) - (addr >> 12);
+ #ifdef TCC_TARGET_PE

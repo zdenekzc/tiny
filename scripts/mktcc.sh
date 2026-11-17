@@ -86,7 +86,7 @@ git -C "$SRC" rev-parse -q --verify HEAD > /dev/null || die "$SRC is not a git c
 # ---------------------------------------------------------------- 1. patch
 PATCH=$DIR/tcc/toaru/tcc-toaru.patch
 [[ -f $PATCH ]] || die "missing target patch: $PATCH"
-if git -C "$SRC" diff --quiet -- tcc.h tccpp.c tccelf.c tccgen.c libtcc.c x86_64-link.c include/tccdefs.h; then
+if git -C "$SRC" diff --quiet -- tcc.h tccpp.c tccelf.c tccgen.c libtcc.c x86_64-link.c arm64-link.c include/tccdefs.h; then
     echo "applying $PATCH"
     git -C "$SRC" apply --whitespace=nowarn "$PATCH" || die "git apply $PATCH"
 else
