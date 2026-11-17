@@ -41,7 +41,7 @@ VISIBLE=${VISIBLE:-1}
 DEMO=${DEMO:-1}
 
 die() { echo "error: $*" >&2; exit 1; }
-need() { command -v "$1" > /dev/null 2>&1 || die "missing program '$1'"; }
+. "$REPO_ROOT/need.sh"   # need(): dependency check with package-install hints
 
 need qemu-system-aarch64
 

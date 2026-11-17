@@ -99,7 +99,7 @@ MB=${MB:-64}
 BOOT_ISO=""
 
 die() { echo "error: $*" >&2; exit 1; }
-need() { command -v "$1" > /dev/null 2>&1 || die "missing program '$1'"; }
+. "$REPO_ROOT/need.sh"   # need(): dependency check with package-install hints
 
 # the control VM must not stay running if the script crashes
 VM_TEST_STARTED=0
@@ -126,8 +126,8 @@ mkdir -p "${DOWNLOAD}"
 if [[ ! -f "${ISO}" ]]; then
     echo "== downloading ToaruOS 2.3.2 ISO ..."
     # Try primary URL, fallback if it fails
-    ISO_URL="https://github.com/klange/toaruos/releases/download/2.3.2/toaruos-2.3.2.iso"
-    FALLBACK_URL="https://github.com/klange/toaruos/releases/latest/download/toaruos-2.3.2.iso"
+    ISO_URL="https://github.com/klange/toaruos/releases/download/v2.3.2/image.iso"
+    FALLBACK_URL="https://github.com/klange/toaruos/releases/latest/download/image.iso"
     if ! curl -L --fail -o "${ISO}.part" "$ISO_URL"; then
         echo "Primary ISO URL failed, trying fallback..."
         if ! curl -L --fail -o "${ISO}.part" "$FALLBACK_URL"; then

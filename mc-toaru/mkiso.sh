@@ -34,7 +34,7 @@ WORK=$(mktemp -d "$TOP/_tmp/mkiso.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 die() { echo "error: $*" >&2; exit 1; }
-need() { command -v "$1" >/dev/null 2>&1 || die "missing program '$1'"; }
+. "$TOP/need.sh"   # need(): dependency check with package-install hints
 
 need isoinfo
 need genisoimage

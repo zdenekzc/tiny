@@ -75,7 +75,7 @@ DEMO=${DEMO:-1}
 MB=${MB:-64}
 
 die() { echo "error: $*" >&2; exit 1; }
-need() { command -v "$1" > /dev/null 2>&1 || die "missing program '$1'"; }
+. "$REPO_ROOT/need.sh"   # need(): dependency check with package-install hints
 
 # the control VM must not stay running if the script crashes
 VM_TEST_STARTED=0
@@ -97,13 +97,12 @@ need gcc
 mkdir -p "${DOWNLOAD}"
 if [[ ! -f "${ISO}" ]]; then
     echo "== downloading ToaruOS 2.3.2 ISO ..."
-    # The primary URL serves the release asset; the fallbacks cover renamed
-    # assets and the "latest" redirect (verified 2026-11-12).
-    ISO_URL="https://github.com/klange/toaruos/releases/download/v2.3.2/toaruos-2.3.2.iso"
-    ALT_URL="https://github.com/klange/toaruos/releases/download/2.3.2/toaruos-2.3.2.iso"
-    FALLBACK_URL="https://github.com/klange/toaruos/releases/latest/download/toaruos-2.3.2.iso"
+    # The primary URL serves the release asset; the fallback covers the
+    # "latest" redirect (verified 2026-11-17).
+    ISO_URL="https://github.com/klange/toaruos/releases/download/v2.3.2/image.iso"
+    FALLBACK_URL="https://github.com/klange/toaruos/releases/latest/download/image.iso"
     ok=0
-    for url in "${ISO_URL}" "${ALT_URL}" "${FALLBACK_URL}"; do
+    for url in "${ISO_URL}" "${FALLBACK_URL}"; do
         if curl -L --fail -o "${ISO}.part" "${url}"; then ok=1; break; fi
         echo "  ... ${url} failed, trying the next one"
     done
