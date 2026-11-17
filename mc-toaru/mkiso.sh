@@ -82,8 +82,10 @@ done < <(isoinfo -R -f -i "$ISO_IN")
 echo "== unpacking ramdisk.igz"
 gzip -dc "$WORK/base/ramdisk.igz" | tar -xf - -C "$WORK/ramdisk"
 
-echo "== installing mc as /bin/mc"
-install -m 755 "$MC_BIN" "$WORK/ramdisk/bin/mc"
+# mc on PATH: a symlink to the payload binary in /extras (saves a 500 kB
+# copy; argv[0] is only used for the usage message).
+echo "== linking mc as /bin/mc"
+ln -s /extras/mc "$WORK/ramdisk/bin/mc"
 
 # tcc on PATH: a symlink to the sysroot-carrying binary in /extras/tcc (the
 # compiled-in CONFIG_TCCDIR is /extras/tcc, so the symlink needs no -B).
