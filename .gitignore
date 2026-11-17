@@ -17,3 +17,4 @@ nuklear-ide/nuklear-ide.bin
 bare-mc/initramfs.tar
 bare-mc/kernel.bin
 bare-mc/vhd_boot.img
+__pycache__/\n*.pyc
