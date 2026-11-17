@@ -40,9 +40,9 @@
 #   mc /extras
 #
 # (When the VM is started by hand, pass the custom ISO:
-#  ISO=_build/custom.iso ./toaru-vm.sh start)
+#  ISO=_build/custom.iso ./scripts/toaru-vm.sh start)
 #
-# Shutdown:  ./toaru-vm.sh stop
+# Shutdown:  ./scripts/toaru-vm.sh stop
 #
 # Optional environment variables:
 #   VISIBLE=0     no QEMU window (serial line only; automatic check still runs)
@@ -77,7 +77,7 @@ NETSURF_BIN="${NETSURF_DL}/netsurf-3.11/netsurf"
 PUSH="${BUILD_DIR}/push"
 SHARE_IMG="${BUILD_DIR}/share.img"
 SHARE_TEST="${BUILD_DIR}/share-test.img"
-VM="${REPO_ROOT}/toaru-vm.sh"
+VM="${REPO_ROOT}/scripts/toaru-vm.sh"
 
 # If cached imports exist and the build tree is gone, seed it from _import.
 # (Never copy over an existing tree: git's pack files are read-only, so a
@@ -99,7 +99,7 @@ MB=${MB:-64}
 BOOT_ISO=""
 
 die() { echo "error: $*" >&2; exit 1; }
-. "$REPO_ROOT/need.sh"   # need(): dependency check with package-install hints
+. "$REPO_ROOT/scripts/need.sh"   # need(): dependency check with package-install hints
 
 # the control VM must not stay running if the script crashes
 VM_TEST_STARTED=0
@@ -148,7 +148,7 @@ fi
 # ------------------------------------- 3) TinyCC: cross + tcc for ToaruOS
 if [[ ! -x "${TCC}" || ! -f "${TCC_GUEST}" || ! -f "${SYSROOT}/libc.a" ]]; then
     echo "== building TinyCC (cross and for running inside ToaruOS) ..."
-    "${REPO_ROOT}/mktcc.sh"
+    "${REPO_ROOT}/scripts/mktcc.sh"
 fi
 [[ -x "${TCC}" ]]     || die "missing ${TCC} (mktcc.sh failed)"
 [[ -f "${TCC_GUEST}" ]] || die "missing ${TCC_GUEST} (mktcc.sh failed)"
@@ -207,7 +207,7 @@ cp "${REPO_ROOT}/tcc/toaru/test.c" "${PUSH}/tcc_test.c"
 # TinyCC is not involved; the control VM below checks that it really runs.
 GCC_TEST="${PUSH}/gcc_hello"
 if command -v gcc > /dev/null 2>&1 && command -v ld > /dev/null 2>&1; then
-    "${REPO_ROOT}/gcc-toaru.sh" -o "${GCC_TEST}" "${REPO_ROOT}/tests/gcc/hello.c" \
+    "${REPO_ROOT}/scripts/gcc-toaru.sh" -o "${GCC_TEST}" "${REPO_ROOT}/tests/gcc/hello.c" \
         || die "gcc-toaru.sh failed"
 else
     echo "note: gcc/ld not found — /gcc_hello will not be built"
@@ -743,7 +743,7 @@ qmp_double_click() {
 # guest sees it directly on /.
 
 MC_NOTE="All payload files live in /extras inside the ramdisk (mc is /bin/mc) — no disk is mounted and / stays clean for the desktop icons."
-START_HINT="ISO=${BOOT_ISO} ./toaru-vm.sh start"
+START_HINT="ISO=${BOOT_ISO} ./scripts/toaru-vm.sh start"
 
 cat <<EOF
 
@@ -760,6 +760,6 @@ If you start the VM later by hand, pass the custom ISO:
 
     ${START_HINT}
 
-Shutting down the VM:  ./toaru-vm.sh stop
-Serial line (only with HEADLESS=1):  ./toaru-vm.sh send 'command'
+Shutting down the VM:  ./scripts/toaru-vm.sh stop
+Serial line (only with HEADLESS=1):  ./scripts/toaru-vm.sh send 'command'
 EOF

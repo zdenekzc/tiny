@@ -26,7 +26,7 @@
 #                        silently drops to the BIOS and hangs.
 #
 # Boot straight from the files (no ISO, no genisoimage needed):
-#   INITRD=_build/ramdisk.tgz ./toaru-vm.sh start
+#   INITRD=_build/ramdisk.tgz ./scripts/toaru-vm.sh start
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -50,7 +50,7 @@ WORK=$(mktemp -d "$TOP/_tmp/mkiso.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 die() { echo "error: $*" >&2; exit 1; }
-. "$TOP/need.sh"   # need(): dependency check with package-install hints
+. "$TOP/scripts/need.sh"   # need(): dependency check with package-install hints
 
 need isoinfo
 need genisoimage

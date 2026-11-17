@@ -1,8 +1,8 @@
 #!/bin/bash
 # mkshare.sh — builds _build/share.img (ext2) from the contents of the _build/push/ directory.
 #
-#   ./mkshare.sh                 # image from _build/push/
-#   SRC=/somewhere/else ./mkshare.sh
+#   ./scripts/mkshare.sh                 # image from _build/push/
+#   SRC=/somewhere/else ./scripts/mkshare.sh
 #
 # The mke2fs options are not random — ToaruOS modules/ext2.c only handles 32-bit ext2
 # (no 64bit / metadata_csum) and has no htree, hence no dir_index either. The inode
@@ -13,7 +13,7 @@
 # That is why debugfs is mandatory, not optional.
 set -u
 
-DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SRC=${SRC:-${DIR}/_build/push}
 IMG=${IMG:-${DIR}/_build/share.img}
 MB=${MB:-64}

@@ -27,9 +27,9 @@ covers the real range. Writing (read_fs + zeroing) stays at the SAME
 addresses as before, it only additionally writes into the unused gap before the segment.
 
  Usage:
-    ./toaru-elfpad.py --check image.bin    # 0 = headers OK, 1 = the kernel would fail
-    ./toaru-elfpad.py         image.bin    # align in place
-    ./toaru-elfpad.py in.bin  out.bin      # align into another file
+    ./scripts/toaru-elfpad.py --check image.bin    # 0 = headers OK, 1 = the kernel would fail
+    ./scripts/toaru-elfpad.py         image.bin    # align in place
+    ./scripts/toaru-elfpad.py in.bin  out.bin      # align into another file
 
 Return code: 0 ok, 1 cannot align safely (segment overlap / the headers
 alone do not hold), 2 input error.

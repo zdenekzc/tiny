@@ -1,10 +1,10 @@
 #!/bin/bash
 # build-toaruos.sh — builds ToaruOS from its sources, two ways (and two ISAs):
 #
-#   ./build-toaruos.sh docker         upstream method: util/build-in-docker.sh inside
+#   ./scripts/build-toaruos.sh docker         upstream method: util/build-in-docker.sh inside
 #                                     docker.io/toaruos/build-tools:1.99.x
-#   ./build-toaruos.sh native         on this host with _import/gcc_local.tgz
-#   ./build-toaruos.sh -a <mode>      arm64: image :aarch64, toolchain
+#   ./scripts/build-toaruos.sh native         on this host with _import/gcc_local.tgz
+#   ./scripts/build-toaruos.sh -a <mode>      arm64: image :aarch64, toolchain
 #                                     _import/gcc_arm64.tgz
 #
 # x86_64 writes a bootable ISO to _build/toaruos-<mode>/src/image.iso.
@@ -40,7 +40,7 @@
 # the script (it lacks the privilege for useradd and the workspace ownership
 # does not match), so with Podman pass -r to use the root podman storage.
 #
-# native variant: extracts GCC_TGZ (fetch it with ./fetch-gcc-local.sh), makes
+# native variant: extracts GCC_TGZ (fetch it with ./scripts/fetch-gcc-local.sh), makes
 # util/local point at it, and runs the same make steps as the image:
 #   make [ARCH=aarch64] util/local/bin/kuroko; ... base/lib/libc.so; make -jN
 # The toolchain is gcc 10.3.0 (x86_64-pc-toaru or aarch64-unknown-toaru, a
@@ -65,7 +65,7 @@
 # (the same thing as `make ARCH=aarch64 shell`, which needs util/local back).
 set -euo pipefail
 
-DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BUILD=$DIR/_build
 CACHE=$DIR/_import/download/toaruos-src
 PLATFORM=${PLATFORM:-linux/amd64}
@@ -82,7 +82,7 @@ usage() {
 }
 
 die() { echo "error: $*" >&2; exit 1; }
-. "$DIR/need.sh"   # need(): dependency check with package-install hints
+. "$DIR/scripts/need.sh"   # need(): dependency check with package-install hints
 
 mode=
 while [[ $# -gt 0 ]]; do
@@ -238,7 +238,7 @@ if [[ $mode == native ]]; then
     fi
 
     if [[ ! -d $TOOLCHAIN ]]; then
-        [[ -f $GCC_TGZ ]] || die "missing toolchain $GCC_TGZ — run ./fetch-gcc-local.sh first"
+        [[ -f $GCC_TGZ ]] || die "missing toolchain $GCC_TGZ — run ./scripts/fetch-gcc-local.sh first"
         echo "== extracting $GCC_TGZ ..."
         mkdir -p "$MODE_DIR"
         tar -xzf "$GCC_TGZ" -C "$MODE_DIR" || die "tar"

@@ -12,7 +12,7 @@
 # a custom ISO (mc-toaru/mkiso.sh), which also emits _build/ramdisk.tgz and
 # _build/kernel.mb for booting without the ISO:
 #
-#   INITRD=_build/ramdisk.tgz ./toaru-vm.sh start
+#   INITRD=_build/ramdisk.tgz ./scripts/toaru-vm.sh start
 #
 # The difference from tests/build-toaru.sh: no Nuklear IDE and no NetSurf.
 #
@@ -46,10 +46,10 @@
 #   mc /extras     (also /bin/mc)
 #
 # (When the VM is started by hand, pass the custom ISO or the initrd:
-#  ISO=_build/custom.iso ./toaru-vm.sh start
-#  INITRD=_build/ramdisk.tgz ./toaru-vm.sh start)
+#  ISO=_build/custom.iso ./scripts/toaru-vm.sh start
+#  INITRD=_build/ramdisk.tgz ./scripts/toaru-vm.sh start)
 #
-# Shutdown:  ./toaru-vm.sh stop
+# Shutdown:  ./scripts/toaru-vm.sh stop
 #
 # Optional environment variables:
 #   VISIBLE=0     no QEMU window (serial line only; automatic check still runs)
@@ -77,14 +77,14 @@ NUKLEAR="${DOWNLOAD}/nuklear.h"
 PUSH="${BUILD_DIR}/push"
 SHARE_IMG="${BUILD_DIR}/share.img"
 SHARE_TEST="${BUILD_DIR}/share-test.img"
-VM="${REPO_ROOT}/toaru-vm.sh"
+VM="${REPO_ROOT}/scripts/toaru-vm.sh"
 
 VISIBLE=${VISIBLE:-1}
 DEMO=${DEMO:-1}
 MB=${MB:-64}
 
 die() { echo "error: $*" >&2; exit 1; }
-. "$REPO_ROOT/need.sh"   # need(): dependency check with package-install hints
+. "$REPO_ROOT/scripts/need.sh"   # need(): dependency check with package-install hints
 
 # the control VM must not stay running if the script crashes
 VM_TEST_STARTED=0
@@ -138,7 +138,7 @@ fi
 if [[ ! -x "${TCC}" || ! -f "${TCC_GUEST}" \
       || ! -f "${SYSROOT}/libc.a" ]]; then
     echo "== building TinyCC (cross and for running inside ToaruOS) ..."
-    "${REPO_ROOT}/mktcc.sh"
+    "${REPO_ROOT}/scripts/mktcc.sh"
 fi
 [[ -x "${TCC}" ]]             || die "missing ${TCC} (mktcc.sh failed)"
 [[ -f "${TCC_GUEST}" ]]       || die "missing ${TCC_GUEST} (mktcc.sh failed)"
@@ -366,9 +366,9 @@ In the ToaruOS window open the Terminal and run:
 
 If you start the VM later by hand, pass the custom ISO or boot without it:
 
-    ISO=${BOOT_ISO} ./toaru-vm.sh start
-    INITRD=${BUILD_DIR}/ramdisk.tgz ./toaru-vm.sh start
+    ISO=${BOOT_ISO} ./scripts/toaru-vm.sh start
+    INITRD=${BUILD_DIR}/ramdisk.tgz ./scripts/toaru-vm.sh start
 
-Shutting down the VM:  ./toaru-vm.sh stop
-Serial line (only with HEADLESS=1):  ./toaru-vm.sh send 'command'
+Shutting down the VM:  ./scripts/toaru-vm.sh stop
+Serial line (only with HEADLESS=1):  ./scripts/toaru-vm.sh send 'command'
 EOF

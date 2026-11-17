@@ -3,8 +3,8 @@
 # their output and return code with same-named programs compiled by the
 # host gcc (same source, see tcc/toaru/*.c).
 #
-#   ./mktcc.sh ; ./toaru-vm.sh start ; ./guest-tcc.sh ; ./toaru-vm.sh stop
-#   PROGS="hello" ./guest-tcc.sh
+#   ./scripts/mktcc.sh ; ./scripts/toaru-vm.sh start ; ./scripts/guest-tcc.sh ; ./scripts/toaru-vm.sh stop
+#   PROGS="hello" ./scripts/guest-tcc.sh
 #
 # Expects a logged-in getty (toaru-vm.sh start) and a built cross compiler
 # _build/tcc-toaru/bin/x86_64-toaru-tcc (mktcc.sh). Images get into the guest via
@@ -12,7 +12,7 @@
 # the time ("cp: failed to copy ...: Bad address", measured 2026-11-12, README §5i).
 set -uo pipefail
 
-DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 OUT=${OUT:-${DIR}/_build/guest-tcc}
 PORT=${PORT:-8010}
 TCC=${TCC:-${DIR}/_build/tcc-toaru/bin/x86_64-toaru-tcc}
@@ -25,9 +25,9 @@ PROGS=${PROGS:-hello}
 CC=${CC:-gcc}
 
 die() { echo "error: $*" >&2; exit 2; }
-[[ -x $TCC ]] || die "missing $TCC — ./mktcc.sh"
-[[ -f $LIB/libc.a ]] || die "missing sysroot $LIB — ./mktcc.sh"
-[[ $("$DIR/toaru-vm.sh" status) == *"QEMU is running"* ]] || die "VM is not running — ./toaru-vm.sh start"
+[[ -x $TCC ]] || die "missing $TCC — ./scripts/mktcc.sh"
+[[ -f $LIB/libc.a ]] || die "missing sysroot $LIB — ./scripts/mktcc.sh"
+[[ $("$DIR/scripts/toaru-vm.sh" status) == *"QEMU is running"* ]] || die "VM is not running — ./scripts/toaru-vm.sh start"
 
 args_for() {   # arguments the program gets in the guest and on the host
     case $1 in
@@ -54,7 +54,7 @@ sleep 1
 wait_for() {   # wait_for <line> - until it appears in the log (at most 60 s)
     local i
     for i in $(seq 1 60); do
-        [[ $'\n'$("$DIR/toaru-vm.sh" log 5)$'\n' == *$'\n'"$1"$'\n'* ]] && return 0
+        [[ $'\n'$("$DIR/scripts/toaru-vm.sh" log 5)$'\n' == *$'\n'"$1"$'\n'* ]] && return 0
         sleep 1
     done
     return 1
@@ -63,10 +63,10 @@ RUN=$(date +%s)                     # markers unambiguous even with several runs
 for p in $PROGS; do
     [[ -f $OUT/$p.bin ]] || continue
     a=$(args_for "$p")
-    "$DIR/toaru-vm.sh" send "fetch http://10.0.2.2:$PORT/$p.bin -o /tmp/$p.bin; chmod 755 /tmp/$p.bin; echo ==BEG-$p-$RUN==; /tmp/$p.bin $a; echo ==RC-$p-$RUN== \$?; echo ==END-$p-$RUN=="
+    "$DIR/scripts/toaru-vm.sh" send "fetch http://10.0.2.2:$PORT/$p.bin -o /tmp/$p.bin; chmod 755 /tmp/$p.bin; echo ==BEG-$p-$RUN==; /tmp/$p.bin $a; echo ==RC-$p-$RUN== \$?; echo ==END-$p-$RUN=="
     wait_for "==END-$p-$RUN==" || echo "warning: $p did not finish within 60 s"
 done
-"$DIR/toaru-vm.sh" log 100000 > "$OUT/guest.log"
+"$DIR/scripts/toaru-vm.sh" log 100000 > "$OUT/guest.log"
 
 norm() {   # the program path differs (./test.lin vs /tmp/test.bin), everything else must match
     sed -E 's|^(argv\[0\]=).*$|\1PROG|'

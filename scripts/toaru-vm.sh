@@ -1,13 +1,13 @@
 #!/bin/bash
 # toaru-vm.sh — ToaruOS in QEMU without podman/docker, controlled over the serial line.
 #
-#   ./toaru-vm.sh start            # starts the VM in the background, log is _build/work/out.log
-#   ./toaru-vm.sh send 'ls /'      # sends a command to the guest (assumes a logged-in getty)
-#   ./toaru-vm.sh log [N]          # prints N lines of the log without control characters
-#   ./toaru-vm.sh status           # running? + log size
-#   ./toaru-vm.sh stop             # kills QEMU and the FIFO holder
-#   ./toaru-vm.sh mon 'info reg'   # QEMU monitor (HMP) command via the QMP socket
-#   ./toaru-vm.sh qmp '{"execute":"query-status"}'
+#   ./scripts/toaru-vm.sh start            # starts the VM in the background, log is _build/work/out.log
+#   ./scripts/toaru-vm.sh send 'ls /'      # sends a command to the guest (assumes a logged-in getty)
+#   ./scripts/toaru-vm.sh log [N]          # prints N lines of the log without control characters
+#   ./scripts/toaru-vm.sh status           # running? + log size
+#   ./scripts/toaru-vm.sh stop             # kills QEMU and the FIFO holder
+#   ./scripts/toaru-vm.sh mon 'info reg'   # QEMU monitor (HMP) command via the QMP socket
+#   ./scripts/toaru-vm.sh qmp '{"execute":"query-status"}'
 #                                  # raw QMP command (JSON), e.g. input-send-event
 #
 # The QMP socket (mon) serves to inspect the state when the guest "does not
@@ -25,12 +25,12 @@
 #            HEADLESS=0 (graphical boot; no getty on ttyS1 — use the Terminal) \
 #            ACCEL=tcg QEMU_EXTRA='-d int -D /tmp/qemu-int.log' (additional QEMU
 #            arguments; -d int logs exceptions only in TCG, not with KVM)
-#   ./toaru-vm.sh start
+#   ./scripts/toaru-vm.sh start
 #
 # ISO-less boot (preferred when _build/kernel.mb and _build/ramdisk.tgz exist,
 # see mc-toaru/mkiso.sh): QEMU loads the kernel and the ramdisk directly and
 # no ISO is needed:
-#   INITRD=_build/ramdisk.tgz ./toaru-vm.sh start
+#   INITRD=_build/ramdisk.tgz ./scripts/toaru-vm.sh start
 #            INITRD=/path  boot with -kernel/-initrd; KERNEL=/path overrides
 #                          the kernel (default _build/kernel.mb, the stock
 #                          kernel with the multiboot graphics request cleared
@@ -42,7 +42,7 @@
 #                          same line the stock boot.sys would assemble.
 set -u
 
-DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # The ISO is downloaded into _import/download by tests/run-toaru.sh or
 # tests/build-toaru.sh; keep
 # accepting the old _build/download copy for existing workspaces.
@@ -111,7 +111,7 @@ do_start() {
     # the path to a unix socket fits in ~108 characters (sockaddr_un structure),
     # too deep a WORK would only show up as "QEMU failed to start"
     (( ${#QMPS} < 100 )) || die "path to the QMP socket is too long: $QMPS"
-    running && die "QEMU is already running (pid $(cat "${PIDF}")) — ./toaru-vm.sh stop"
+    running && die "QEMU is already running (pid $(cat "${PIDF}")) — ./scripts/toaru-vm.sh stop"
 
     mkdir -p "$WORK"
     rm -f "$FIFO" "$QMPS"; : > "$OUT"; : > "$SER0"; mkfifo "$FIFO"
@@ -216,13 +216,13 @@ do_start() {
     snapshot "$h" "${HOLDERF%.pid}.cmd"
     disown
     echo "QEMU pid=$(cat "${PIDF}") log=${OUT}"
-    echo "boot takes ~15 s; then: ./toaru-vm.sh send 'ls /dev'"
+    echo "boot takes ~15 s; then: ./scripts/toaru-vm.sh send 'ls /dev'"
 }
 
 do_send() {
-    [[ $# -gt 0 ]] || die "send: command, e.g. ./toaru-vm.sh send 'ls /'"
-    [[ -p "$FIFO" ]] || die "no FIFO — ./toaru-vm.sh start"
-    running || die "QEMU is not running — ./toaru-vm.sh start"
+    [[ $# -gt 0 ]] || die "send: command, e.g. ./scripts/toaru-vm.sh send 'ls /'"
+    [[ -p "$FIFO" ]] || die "no FIFO — ./scripts/toaru-vm.sh start"
+    running || die "QEMU is not running — ./scripts/toaru-vm.sh start"
     printf '%s\n' "$*" > "$FIFO"
 }
 
@@ -232,8 +232,8 @@ do_send() {
 # return value or an error arrives. The argument name is "command-line" - "cmdline"
 # is rejected by QEMU with a GenericError that says nothing (measured 2026-11-12).
 do_mon() {
-    [[ $# -gt 0 ]] || die "mon: HMP command, e.g. ./toaru-vm.sh mon 'info registers -a'"
-    [[ -S "$QMPS" ]] || die "no QMP socket $QMPS — ./toaru-vm.sh start"
+    [[ $# -gt 0 ]] || die "mon: HMP command, e.g. ./scripts/toaru-vm.sh mon 'info registers -a'"
+    [[ -S "$QMPS" ]] || die "no QMP socket $QMPS — ./scripts/toaru-vm.sh start"
     python3 -I - "$QMPS" "$*" <<'PY'
 import json, socket, sys
 
@@ -289,8 +289,8 @@ PY
 # of the host window focus (sendkey only injects keystrokes into the guest's
 # keyboard; pointer movement has no HMP equivalent that works with vmmouse).
 do_qmp() {
-    [[ $# -gt 0 ]] || die "qmp: JSON command, e.g. ./toaru-vm.sh qmp '{\"execute\":\"query-status\"}'"
-    [[ -S "$QMPS" ]] || die "no QMP socket $QMPS — ./toaru-vm.sh start"
+    [[ $# -gt 0 ]] || die "qmp: JSON command, e.g. ./scripts/toaru-vm.sh qmp '{\"execute\":\"query-status\"}'"
+    [[ -S "$QMPS" ]] || die "no QMP socket $QMPS — ./scripts/toaru-vm.sh start"
     python3 -I - "$QMPS" "$@" <<'PY'
 import json, socket, sys
 

@@ -2,13 +2,13 @@
 # guest-tcc-repro.sh — MEASURES which of the programs in tcc/toaru/repro/ kills the guest,
 # and on death captures the QEMU state while the guest is still at hand.
 #
-#   ./guest-tcc-repro.sh                 all programs in repro/
-#   ./guest-tcc-repro.sh ctor_argc ...   only the named ones (without the .c suffix); they are
+#   ./scripts/guest-tcc-repro.sh                 all programs in repro/
+#   ./scripts/guest-tcc-repro.sh ctor_argc ...   only the named ones (without the .c suffix); they are
 #                                        looked up in repro/ and then in tcc/toaru/ (test.c)
-#   ARGS="a b" ./guest-tcc-repro.sh ...  program arguments in the guest
+#   ARGS="a b" ./scripts/guest-tcc-repro.sh ...  program arguments in the guest
 #   REPEAT: run the script several times with your own OUT, e.g.
-#       for i in 1 2 3; do OUT=_build/repro/r$i ./guest-tcc-repro.sh ctor_argc; done
-#   PORT=8012 TIMEOUT=40 BOOTS=3 BOOTWAIT=60 ./guest-tcc-repro.sh
+#       for i in 1 2 3; do OUT=_build/repro/r$i ./scripts/guest-tcc-repro.sh ctor_argc; done
+#   PORT=8012 TIMEOUT=40 BOOTS=3 BOOTWAIT=60 ./scripts/guest-tcc-repro.sh
 #       TIMEOUT ... how long to wait for the program to finish (a fatal one never does)
 #       BOOTWAIT .. how long to wait for the guest to respond (with KVM ~8 s, longer without)
 #
@@ -33,7 +33,7 @@
 # Return code: 0 = no program killed the boot, 1 = some did.
 set -uo pipefail
 
-DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 OUT=${OUT:-${DIR}/_build/repro}
 BIN=${BIN:-${OUT}/bin}
 TCC=${TCC:-${DIR}/_build/tcc-toaru/bin/x86_64-toaru-tcc}
@@ -42,7 +42,7 @@ SRC=${SRC:-${DIR}/tcc/toaru/repro}
 PORT=${PORT:-8013}
 TIMEOUT=${TIMEOUT:-40}          # how many seconds we wait for the program's end marker
 BOOTS=${BOOTS:-3}               # how many times to retry the boot when ToaruOS does not come up
-VM=${VM:-${DIR}/toaru-vm.sh}
+VM=${VM:-${DIR}/scripts/toaru-vm.sh}
 WORK=${WORK:-${DIR}/_build/work}
 ARGS=${ARGS:-}                # arguments the program receives in the guest
 RUN=$(date +%s)
@@ -95,9 +95,9 @@ PY
 }
 
 die() { echo "error: $*" >&2; exit 2; }
-[[ -x $TCC ]] || die "missing $TCC — ./mktcc.sh"
-[[ -f $LIB/libc.a ]] || die "missing sysroot $LIB — ./mktcc.sh"
-[[ -f $WORK/../share.img ]] || die "missing _build/share.img — ./mkshare.sh"
+[[ -x $TCC ]] || die "missing $TCC — ./scripts/mktcc.sh"
+[[ -f $LIB/libc.a ]] || die "missing sysroot $LIB — ./scripts/mktcc.sh"
+[[ -f $WORK/../share.img ]] || die "missing _build/share.img — ./scripts/mkshare.sh"
 
 if [[ $# -gt 0 ]]; then
     PROGS=("$@")

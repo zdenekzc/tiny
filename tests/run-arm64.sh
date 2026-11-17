@@ -7,7 +7,7 @@
 #
 # What the script does (everything can be deleted and run again at any time):
 #   1. builds the ARM64 ToaruOS images when they are missing
-#      (./build-toaruos.sh -a native; a cached build is reused as is —
+#      (./scripts/build-toaruos.sh -a native; a cached build is reused as is —
 #      there is no official aarch64 release, so the OS has to be built),
 #   2. starts a HEADLESS (no window) control VM on the serial line and
 #      verifies that the guest reaches the login prompt and answers commands,
@@ -23,7 +23,7 @@
 #   - toaru-vm.sh is x86_64-only, so this script talks to QEMU through a
 #     serial pipe directly.
 #
-# Shutdown:  ./toaru-vm.sh stop   (works: kills the last-started QEMU)  or
+# Shutdown:  ./scripts/toaru-vm.sh stop   (works: kills the last-started QEMU)  or
 #            pkill -f qemu-system-aarch64
 #
 # Optional environment variables:
@@ -41,7 +41,7 @@ VISIBLE=${VISIBLE:-1}
 DEMO=${DEMO:-1}
 
 die() { echo "error: $*" >&2; exit 1; }
-. "$REPO_ROOT/need.sh"   # need(): dependency check with package-install hints
+. "$REPO_ROOT/scripts/need.sh"   # need(): dependency check with package-install hints
 
 need qemu-system-aarch64
 
@@ -56,8 +56,8 @@ fi
 
 if [[ -z "${SRC}" || ! -f "${SRC}/bootstub" || ! -f "${SRC}/misaka-kernel" ||
       ! -f "${SRC}/ramdisk.igz" ]]; then
-    echo "== ARM64 artefacts missing — building with ./build-toaruos.sh -a native ..."
-    "${REPO_ROOT}/build-toaruos.sh" -a native || die "build-toaruos.sh -a native"
+    echo "== ARM64 artefacts missing — building with ./scripts/build-toaruos.sh -a native ..."
+    "${REPO_ROOT}/scripts/build-toaruos.sh" -a native || die "build-toaruos.sh -a native"
     if [[ -d "${BUILD_DIR}/toaruos-native-aarch64/src" ]]; then
         SRC="${BUILD_DIR}/toaruos-native-aarch64/src"
     elif [[ -d "${BUILD_DIR}/toaruos-docker-aarch64/src" ]]; then
@@ -199,6 +199,6 @@ cat <<EOF
 
 Done. ToaruOS ARM64 is running.
 
-Shutting down the VM:  ./toaru-vm.sh stop   (or: pkill -f qemu-system-aarch64)
+Shutting down the VM:  ./scripts/toaru-vm.sh stop   (or: pkill -f qemu-system-aarch64)
 Serial line:           ${WORK}/serial.log
 EOF

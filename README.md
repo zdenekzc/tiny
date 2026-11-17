@@ -23,16 +23,15 @@ the above.
 ```
 
 A lighter variant exists: `./tests/run-toaru.sh` downloads the official
-ToaruOS 2.3.2 ISO and boots it **unmodified** — the payload (tcc, mc,
-examples, sources) travels on a separate ext2 disk that the guest mounts as
-`/share` by hand. No custom ISO, no ramdisk repacking, no NetSurf/IDE.
+ToaruOS 2.3.2 ISO and repacks only its ramdisk — the payload (tcc, mc,
+examples, sources) travels inside `ramdisk.igz` under `/extras`. No ToaruOS
+build, no Nuklear IDE, no NetSurf.
 
 The first run downloads the ISO, the ToaruOS sources and TinyCC and builds
 everything (a few minutes); later runs only fill in what is missing. A QEMU
-window with ToaruOS then opens and the shared disk is mounted at `/share`
-automatically (see "Inside ToaruOS" below if you start the VM by hand). The
-serial line is logged in as `root@livecd`; the graphical session as `local`
-(password `local`).
+window with ToaruOS then opens (see "Inside ToaruOS" below if you start the VM
+by hand). The serial line is logged in as `root@livecd`; the graphical session
+as `local` (password `local`).
 
 Nothing under `_build/`, `_output/` or `_import/` is irreplaceable: they can be
 deleted at any time and `build-toaru.sh` will download and build everything
@@ -55,7 +54,7 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
      `_build/tcc-toaru/bin/x86_64-toaru-tcc` + sysroot `_build/tcc-toaru/lib`
      (`libc.a`, `crt0.o`, `crti.o`, `crtn.o`, `libtcc1.a`, `include/`),
    - **tcc that runs inside ToaruOS**
-     `_build/tcc-toaru/tcc-guest` (ToaruOS ELF, `CONFIG_TCCDIR=/share/tcc`),
+     `_build/tcc-toaru/tcc-guest` (ToaruOS ELF, `CONFIG_TCCDIR=/extras/tcc`),
    - verification programs `_build/tcc-toaru/hello` and `.../test`,
 4. clones mini-commander into `_import/mini-commander`, builds the copy in
    `_build/minicmd/mini-commander` with the cross compiler → `_output/mc`
@@ -75,44 +74,37 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
    item highlighted), runs its command line on Enter, keeps the output on the
    normal screen until F9 returns to the panels, opens the viewer (F3) and
    editor (F4) and quits with F10 or a mouse click,
-8. starts the **visible ToaruOS** in a QEMU window and mounts the shared disk at
-   `/share`, then leaves the VM running:
+8. starts the **visible ToaruOS** in a QEMU window and leaves the VM running:
    - graphical boot: closes the first-boot tutorial, double-clicks the Terminal
-     icon (QMP absolute pointer) and types the mount commands with QEMU's
+     icon (QMP absolute pointer) and types the first commands with QEMU's
      `sendkey` (the session runs as user `local`, so the first command asks for
      its password, `local`),
    - headless boot: uses the root getty on the serial line.
 
 The verification VM (step 7) can be skipped with `DEMO=0`, the QEMU window with
-`VISIBLE=0`, automatic mounting with `AUTOMOUNT=0`.
+`VISIBLE=0`.
 
 ## Inside ToaruOS
 
-`build-toaru.sh` waits for the guest and mounts the shared disk automatically, so
-`/share` is ready in the Terminal. If you start the VM by hand with
-`./toaru-vm.sh start`, mount it first:
-
-```sh
-mkdir -p /share
-insmod /mod/ext2.ko
-mount ext2 /dev/hda,rw /share
-```
+All payload files live under `/extras` **inside the ramdisk** — no disk needs to
+be mounted and `/` stays clean for the desktop icons (`mc` is also installed as
+`/bin/mc`).
 
 TinyCC:
 
 ```sh
-/share/tcc/bin/tcc -o /tmp/hello /share/tcc_hello.c ; /tmp/hello
-/share/compile_examples.sh        # compiles and runs every *.c in /share
+/extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+/extras/compile_examples.sh        # compiles and runs every *.c in /extras
 ```
 
-`tcc` has the sysroot built in (`/share/tcc`), so no `-B` or `-I` is needed.
-Write outputs to `/tmp` — writes into the ext2 image are not reliably flushed
-from the host (ata.ko does not use write-back caching).
+`tcc` has the sysroot built in (`/extras/tcc`), so no `-B` or `-I` is needed.
+Write outputs to `/tmp` — the ramdisk is read-only unless the kernel migrates
+it to a writable tmpfs (`migrate`, the default).
 
 mini-commander:
 
 ```sh
-/share/mc /share
+mc /extras        (also /bin/mc)
 ```
 
 Quit with **F10** (same as Midnight Commander); the usual mouse and keyboard
@@ -132,10 +124,10 @@ C library, the startup code and the ELF layout — and all three are in the
 sysroot that `mktcc.sh` builds (`_build/tcc-toaru/lib`).
 
 ```sh
-./gcc-toaru.sh -o user/hello tests/gcc/hello.c   # gcc + GNU ld + toaru-elfpad.py
-./tests/build-toaru.sh                             # packs user/ into /share
+./scripts/gcc-toaru.sh -o user/hello tests/gcc/hello.c   # gcc + GNU ld + toaru-elfpad.py
+./tests/build-toaru.sh                             # packs user/ into /extras
 # inside the guest:
-/share/hello
+/extras/hello
 ```
 
 The same steps by hand:
@@ -146,7 +138,7 @@ gcc -ffreestanding -nostdinc -I_build/tcc-toaru/lib/include \
 ld -m elf_x86_64 -static -Ttext-segment=0x3F000000 -o hello \
     _build/tcc-toaru/lib/crt0.o _build/tcc-toaru/lib/crti.o hello.o \
     _build/tcc-toaru/lib/crtn.o -L_build/tcc-toaru/lib -lc
-./toaru-elfpad.py hello                      # page-align the PT_LOAD segments
+./scripts/toaru-elfpad.py hello                      # page-align the PT_LOAD segments
 ```
 
 Notes:
@@ -165,7 +157,7 @@ Notes:
   `p_vaddr`.
 
 The control VM checks this route as well: `tests/build-toaru.sh` builds
-`tests/gcc/hello.c` with the host gcc into `/share/gcc_hello` and runs it.
+`tests/gcc/hello.c` with the host gcc into `/extras/gcc_hello` and runs it.
 TinyCC remains the compiler that runs *inside* ToaruOS.
 
 ## Nuklear IDE (Linux and ToaruOS)
@@ -202,13 +194,13 @@ re-downloads them from a pinned upstream commit. See
 ## Controlling the VM
 
 ```bash
-./toaru-vm.sh start            # starts the VM in the background (log _build/work/out.log)
-./toaru-vm.sh send 'ls /'      # serial line (only in a headless boot, getty on ttyS1)
-./toaru-vm.sh log 200          # last 200 log lines without ANSI sequences
-./toaru-vm.sh status           # running? log size
-./toaru-vm.sh mon 'info reg'   # QEMU monitor command (QMP socket)
-./toaru-vm.sh qmp '{"execute":"query-status"}'   # raw QMP command (JSON)
-./toaru-vm.sh stop             # stops QEMU
+./scripts/toaru-vm.sh start            # starts the VM in the background (log _build/work/out.log)
+./scripts/toaru-vm.sh send 'ls /'      # serial line (only in a headless boot, getty on ttyS1)
+./scripts/toaru-vm.sh log 200          # last 200 log lines without ANSI sequences
+./scripts/toaru-vm.sh status           # running? log size
+./scripts/toaru-vm.sh mon 'info reg'   # QEMU monitor command (QMP socket)
+./scripts/toaru-vm.sh qmp '{"execute":"query-status"}'   # raw QMP command (JSON)
+./scripts/toaru-vm.sh stop             # stops QEMU
 ```
 
 ## Boot-time benchmark
@@ -245,14 +237,13 @@ there the ISO/bootloader path remains the right choice.
 | Variable | Meaning |
 |---|---|
 | `VISIBLE=0` | no QEMU window (serial line only); the automated check still runs |
-| `HEADLESS=1` | headless boot even when the QEMU window is open (mounts over the serial line) |
+| `HEADLESS=1` | headless boot even when the QEMU window is open (getty on the serial line) |
 | `DEMO=0` | skip the verification VM (step 7) |
-| `AUTOMOUNT=0` | do not mount the shared disk automatically |
-| `MB=128` | size of `share.img` in MiB (default 64; enough even with the ToaruOS sources) |
+| `MB=128` | size of the blank IDE disk `share.img` in MiB (default 64) |
 | `ACCEL=tcg` | no KVM (slower, but `-d int` logs exceptions under TCG) |
 | `QEMU_EXTRA=...` | extra QEMU arguments (e.g. `-s` for the gdb stub) |
 
-The same variables can be passed to `toaru-vm.sh start`.
+The same variables can be passed to `scripts/toaru-vm.sh start`.
 
 ## Directory layout
 
@@ -260,13 +251,26 @@ The same variables can be passed to `toaru-vm.sh start`.
 tiny/
 ├─ tests/build-toaru.sh      # one-click: download, build, run
 ├─ tests/bench-boot.sh     # ISO vs -kernel/-initrd boot timing
-├─ tests/examples/*.c      # sample programs (copied to /share)
-├─ tests/gcc/hello.c       # program built by the host gcc (into /share)
-├─ user/                   # YOUR files — copied into the root of /share
-├─ gcc-toaru.sh            # builds a program for ToaruOS with the HOST gcc
+├─ tests/examples/*.c      # sample programs (copied to /extras)
+├─ tests/gcc/hello.c       # program built by the host gcc (into /extras)
+├─ user/                   # YOUR files — copied into /extras
+├─ scripts/                # all helper scripts of the project
+│   ├─ build-toaruos.sh    # builds ToaruOS itself (container or host)
+│   ├─ fetch-gcc-local.sh  # local cross-gcc archive for build-toaruos.sh
+│   ├─ gcc-toaru.sh        # builds a program for ToaruOS with the HOST gcc
+│   ├─ mklibc.sh           # libc.a, crt*.o and headers from the ISO (used by mktcc.sh)
+│   ├─ mktcc.sh            # TinyCC: cross compiler and in-guest compiler
+│   ├─ mkshare.sh          # ext2 image from _build/push (legacy /share flow)
+│   ├─ toaru-vm.sh         # start/stop/send/log/status/mon
+│   ├─ need.sh             # dependency check with package-install hints
+│   ├─ guest-tcc.sh        # measure tcc inside the running guest
+│   ├─ guest-tcc-repro.sh  # repro measurements for tcc/toaru/repro
+│   ├─ toaru-elfpad.py     # ELF format check for the ToaruOS loader
+│   └─ toaru-ksym.py       # kernel symbols without .symtab
 ├─ mc-toaru/
 │   ├─ build.sh            # mc | probe | stage | clean (cross tcc)
 │   ├─ patches/mc-toaru.patch   # the single carrier of the mini-commander port
+│   ├─ mkiso.sh            # custom ISO with the payload inside ramdisk.igz
 │   └─ toaru/              # ncurses shim, compat layer, missing headers
 ├─ nuklear-ide/            # small Nuklear IDE (Linux + native ToaruOS)
 │   ├─ main.c              # UI, editor tabs, file tree, async build/run
@@ -275,11 +279,6 @@ tiny/
 │   ├─ demo/hello.c        # F5 demo program
 │   ├─ fetch-nuklear.sh    # re-download the headers from upstream
 │   └─ _import/            # downloaded nuklear.h + nuklear_glfw_gl2.h
-├─ mklibc.sh               # libc.a, crt*.o and headers from the ISO (used by mktcc.sh)
-├─ mktcc.sh                # TinyCC: cross compiler and in-guest compiler
-├─ mkshare.sh              # ext2 image from _build/push
-├─ toaru-vm.sh             # start/stop/send/log/status/mon
-├─ toaru-elfpad.py         # ELF format check for the ToaruOS loader
 ├─ toaruos-ext2-sparse-bug.md  # ext2 sparse-file bug report (upstream is archived)
 ├─ _import/                # downloads: ISO, sources, clones, tarballs (safe to delete)
 │   ├─ download/           # image.iso, toaruos-src, tinycc, nuklear.h, netsurf*
@@ -287,8 +286,10 @@ tiny/
 ├─ _build/                 # build trees and artifacts (safe to delete)
 │   ├─ download/           # extracted sources and dependency build trees
 │   ├─ tcc-toaru/          # cross tcc, sysroot, tcc-guest, test programs
-│   ├─ push/               # shared-disk contents before packing
-│   ├─ share.img           # finished ext2 disk (mounted as /dev/hda in the guest)
+│   ├─ push/               # ramdisk payload before packing (goes to /extras)
+│   ├─ share.img           # blank IDE disk (the VM always attaches one)
+│   ├─ ramdisk.tgz         # repacked ramdisk for the ISO-less boot
+│   ├─ kernel.mb           # stock kernel with the multiboot VBE request cleared
 │   └─ work/               # FIFO, logs and pid files of the running VM
 ├─ _output/                # build results worth keeping
 │   ├─ mc                  # mini-commander for ToaruOS
@@ -309,11 +310,11 @@ underscore are treated as disposable, which is why user data belongs in
 `bash`, `curl`, `git`, `patch`, `qemu-system-x86_64`, `python3`, `7z` (p7zip;
 unpacks the ISO when building the sysroot), host `gcc` and GNU `ld`
 (binutils — used to build the cross tcc and `gcc-toaru.sh`) and `e2fsprogs`
-(`mke2fs`, `debugfs`). No `sudo` is needed — `share.img` is a plain
-file and the guest mounts it as an IDE disk.
+(`mke2fs`, `debugfs`) and `genisoimage` (`isoinfo`, for the custom ISO).
+No `sudo` is needed.
 
-Fedora: `dnf install qemu-system-x86 p7zip gcc e2fsprogs python3 curl git patch`
-Debian/Ubuntu: `apt install qemu-system-x86 p7zip-full gcc e2fsprogs python3 curl git patch`
+Fedora: `dnf install qemu-system-x86 p7zip-plugins gcc e2fsprogs python3 curl git patch genisoimage mtools dosfstools`
+Debian/Ubuntu: `apt install qemu-system-x86 p7zip-full gcc e2fsprogs python3 curl git patch genisoimage mtools dosfstools`
 
 For automatic mounting in the **visible** QEMU window, `wmctrl` (X11) or
 `xdotool` is used when available to bring the QEMU window to the front; the
@@ -408,7 +409,7 @@ After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —
 - **Examples**: all `tests/examples/*.c` files are plain C (C99/C11) and
   TinyCC compiles and runs them. `queens.c`, `knight.c` and `towers.c` are the
   chess/toy examples; the rest are data structures and sorting.
-  `/share/compile_examples.sh` compiles every `*.c` in `/share`.
+  `/extras/compile_examples.sh` compiles every `*.c` in `/extras`.
 
 ## License
 

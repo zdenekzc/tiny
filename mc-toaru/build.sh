@@ -1,6 +1,6 @@
 #!/bin/bash
 # build.sh — builds miniCommander (and test programs) FOR TOARUOS with the cross
-# compiler from ../mktcc.sh, i.e. without QEMU and without compiling inside the guest.
+# compiler from ../scripts/mktcc.sh, i.e. without QEMU and without compiling inside the guest.
 #
 #   ./build.sh probe            ttyprobe (termios / terminal size)
 #   ./build.sh mc               miniCommander  => _output/mc
@@ -14,7 +14,7 @@
 # headers); it is not copied into the sources, it is only given precedence over the
 # system headers via -I.
 #
-# Compiler: _build/tcc-toaru/bin/x86_64-toaru-tcc (../mktcc.sh), sysroot with
+# Compiler: _build/tcc-toaru/bin/x86_64-toaru-tcc (../scripts/mktcc.sh), sysroot with
 # libc.a, crt*.o and ToaruOS headers from the ISO.  Every image is verified with
 # toaru-elfpad.py — the ToaruOS loader maps PT_LOAD page by page from p_vaddr,
 # so an unaligned segment loses its last page (README §5i).
@@ -28,11 +28,11 @@ SRC=${SRC:-$TOP/_build/minicmd/mini-commander}   # unmodified miniCommander sour
 OUT=${OUT:-$TOP/_output}
 WORK=$OUT/src
 PATCH=$HERE/patches/mc-toaru.patch
-ELFPAD=$TOP/toaru-elfpad.py
+ELFPAD=$TOP/scripts/toaru-elfpad.py
 
 die() { echo "error: $*" >&2; exit 1; }
-[[ -x $TCC ]] || die "missing cross compiler $TCC — run ../mktcc.sh"
-[[ -d $SYSROOT/include ]] || die "missing sysroot $SYSROOT — run ../mktcc.sh"
+[[ -x $TCC ]] || die "missing cross compiler $TCC — run ../scripts/mktcc.sh"
+[[ -d $SYSROOT/include ]] || die "missing sysroot $SYSROOT — run ../scripts/mktcc.sh"
 
 CC="$TCC -B$SYSROOT -I$HERE/toaru"
 mkdir -p "$OUT"

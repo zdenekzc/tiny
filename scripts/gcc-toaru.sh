@@ -1,9 +1,9 @@
 #!/bin/bash
 # gcc-toaru.sh — builds a program for ToaruOS 2.3.2 with the HOST gcc.
 #
-#   ./gcc-toaru.sh tests/gcc/hello.c              # -> ./hello
-#   ./gcc-toaru.sh -o _tmp/hello a.c b.c          # several sources
-#   SYSROOT=/path ./gcc-toaru.sh prog.c
+#   ./scripts/gcc-toaru.sh tests/gcc/hello.c              # -> ./hello
+#   ./scripts/gcc-toaru.sh -o _tmp/hello a.c b.c          # several sources
+#   SYSROOT=/path ./scripts/gcc-toaru.sh prog.c
 #
 # No cross compiler is needed: the x86_64 SysV ABI is the same as on Linux,
 # so what differs is only the C library, the startup code and the ELF layout.
@@ -25,12 +25,12 @@
 # 2026-11-14: SIGSEGV or a hang).  GNU ld's -Ttext-segment=0x3F000000 produces
 # the same layout tcc uses, which the ToaruOS loader handles.
 #
-# Extra compiler flags: CFLAGS='-g -O0' ./gcc-toaru.sh ...
+# Extra compiler flags: CFLAGS='-g -O0' ./scripts/gcc-toaru.sh ...
 set -u
 
-HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SYS=${SYSROOT:-$HERE/_build/tcc-toaru/lib}
-ELFPAD=$HERE/toaru-elfpad.py
+ELFPAD=$HERE/scripts/toaru-elfpad.py
 CC=${CC:-gcc}
 LD=${LD:-ld}
 CFLAGS=${CFLAGS:--O2 -Wall}
@@ -59,7 +59,7 @@ done
 command -v "$CC" > /dev/null || die "missing $CC"
 command -v "$LD" > /dev/null || die "missing $LD (GNU ld; do not use ld.lld)"
 [[ -f $SYS/crt0.o && -f $SYS/libc.a && -d $SYS/include ]] \
-    || die "missing sysroot $SYS — run ./mktcc.sh (it builds _build/tcc-toaru/lib)"
+    || die "missing sysroot $SYS — run ./scripts/mktcc.sh (it builds _build/tcc-toaru/lib)"
 [[ -f $ELFPAD ]] || die "missing $ELFPAD"
 command -v python3 > /dev/null || die "missing python3 (toaru-elfpad.py)"
 

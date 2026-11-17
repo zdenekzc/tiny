@@ -9,7 +9,7 @@
 # compositor.  The in-guest compiler used by the IDE's Build/Run commands is
 # TinyCC from the ramdisk (/extras/tcc), not this build.
 #
-# Requires the sysroot made by ../mktcc.sh and a ToaruOS source checkout
+# Requires the sysroot made by ../scripts/mktcc.sh and a ToaruOS source checkout
 # (../tests/run-toaru.sh creates both).
 set -euo pipefail
 
@@ -19,14 +19,14 @@ IDE_DIR=$(cd "$HERE/.." && pwd)
 SYS=${SYSROOT:-$TOP/_build/tcc-toaru/lib}
 TOARU_SRC=${TOARU_SRC:-$TOP/_build/download/toaruos-src}
 OUT=${1:-$TOP/_output/nuklear-ide-toaru}
-ELFPAD=$TOP/toaru-elfpad.py
+ELFPAD=$TOP/scripts/toaru-elfpad.py
 CC=${CC:-gcc}
 LD=${LD:-ld}
 AR=${AR:-ar}
 
 die() { echo "error: $*" >&2; exit 1; }
 [[ -f $SYS/crt0.o && -f $SYS/libc.a && -d $SYS/include ]] ||
-    die "missing sysroot $SYS — run ./mktcc.sh"
+    die "missing sysroot $SYS — run ./scripts/mktcc.sh"
 [[ -f $TOARU_SRC/lib/yutani.c ]] ||
     die "missing ToaruOS sources in $TOARU_SRC — run ./tests/run-toaru.sh"
 [[ -f $ELFPAD ]] || die "missing $ELFPAD"

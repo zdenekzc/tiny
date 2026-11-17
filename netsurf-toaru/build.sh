@@ -6,7 +6,7 @@
 # Output: _build/download/netsurf-3.11/netsurf
 #
 # Prerequisites:
-#   - ToaruOS libc sysroot made by ../mktcc.sh   (_build/tcc-toaru/lib)
+#   - ToaruOS libc sysroot made by ../scripts/mktcc.sh   (_build/tcc-toaru/lib)
 #   - ToaruOS source checkout                    (_build/download/toaruos-src,
 #                                                 created by ../tests/run-toaru.sh)
 #   - host gcc, GNU ld, python3, curl, make, perl
@@ -47,7 +47,7 @@ FE_REV=f50f75909bc65020246e405f7972bebee5e7b022
 die() { echo "error: $*" >&2; exit 1; }
 
 [[ -f $SYS/crt0.o && -f $SYS/libc.a && -d $SYS/include ]] ||
-    die "missing ToaruOS sysroot $SYS — run ../mktcc.sh"
+    die "missing ToaruOS sysroot $SYS — run ../scripts/mktcc.sh"
 [[ -f $TOARU_SRC/lib/yutani.c ]] ||
     die "missing ToaruOS sources in $TOARU_SRC — run ../tests/run-toaru.sh"
 command -v gcc >/dev/null || die "missing host gcc"

@@ -9,11 +9,11 @@ Comments in the code are in English.
 | `tcc-toaru.patch` | modifications of the tcc tree for the ToaruOS target (applied by `mktcc.sh`) |
 | `hello.c` | the smallest program that verifies the whole chain (printf via the ToaruOS libc) |
 | `test.c` | constructor, argc/argv, `snprintf`, `%g`, `malloc` — on 2026-11-12 this was the program that killed the VM (see below) |
-| `repro/` | small programs for measurement in the guest, run by `../../guest-tcc-repro.sh` |
+| `repro/` | small programs for measurement in the guest, run by `../../scripts/guest-tcc-repro.sh` |
 
-Tools around it (from the repository root): `../../toaru-elfpad.py` (checking and
-alignment of `PT_LOAD` according to the loadsric rule), `../../toaru-ksym.py` (kernel
-symbols from a binary without `.symtab`), `../../guest-tcc-repro.sh` (measurement
+Tools around it (from the repository root): `../../scripts/toaru-elfpad.py` (checking and
+alignment of `PT_LOAD` according to the loadsric rule), `../../scripts/toaru-ksym.py` (kernel
+symbols from a binary without `.symtab`), `../../scripts/guest-tcc-repro.sh` (measurement
 and capture of the dead state).
 
 `mktcc.sh` compiles both programs (`_build/tcc-toaru/{hello,test}`) and
@@ -39,7 +39,7 @@ sends its output via `printf_output`, and as soon as `main.c:478` calls
 parameters in the ISO cannot be changed by hand). Hence:
 
 ```console
-$ ./toaru-vm.sh mon 'screendump /tmp/screen.ppm'
+$ ./scripts/toaru-vm.sh mon 'screendump /tmp/screen.ppm'
 # then convert the PPM to PNG with any image tool, e.g. ImageMagick:
 $ convert /tmp/screen.ppm /tmp/screen.png
 ```
@@ -82,7 +82,7 @@ it had nothing to do with the constructor or with `argc`. The only thing that de
 is whether `(p_vaddr & 0xfff) + p_memsz` crosses the page boundary:
 
 ```console
-$ ./toaru-elfpad.py --check obraz.bin        # 0 = OK, 1 = the kernel would crash
+$ ./scripts/toaru-elfpad.py --check obraz.bin        # 0 = OK, 1 = the kernel would crash
 ```
 
 ### The fix

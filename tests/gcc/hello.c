@@ -6,7 +6,7 @@
  * from the ISO and the image layout.  It also means the guest can tell the
  * two builds apart by the text below.
  *
- *   ./gcc-toaru.sh -o /tmp/gcc_hello tests/gcc/hello.c
+ *   ./scripts/gcc-toaru.sh -o /tmp/gcc_hello tests/gcc/hello.c
  *   /tmp/gcc_hello
  */
 #include <stdio.h>

@@ -3,12 +3,12 @@
 # docker.io/toaruos/build-tools:1.99.x as _import/gcc_local.tgz (x86_64), or
 # from the :aarch64 tag as _import/gcc_arm64.tgz (-a).
 #
-#   ./fetch-gcc-local.sh          pull the image if needed, write _import/gcc_local.tgz
-#   ./fetch-gcc-local.sh -a       arm64 variant, write _import/gcc_arm64.tgz
-#   ./fetch-gcc-local.sh -f       pull again and overwrite an existing archive
-#   ./fetch-gcc-local.sh -n       no pull; require the image in the local store
-#   ./fetch-gcc-local.sh -r       run docker/podman through sudo
-#   ./fetch-gcc-local.sh -o FILE  write the archive elsewhere
+#   ./scripts/fetch-gcc-local.sh          pull the image if needed, write _import/gcc_local.tgz
+#   ./scripts/fetch-gcc-local.sh -a       arm64 variant, write _import/gcc_arm64.tgz
+#   ./scripts/fetch-gcc-local.sh -f       pull again and overwrite an existing archive
+#   ./scripts/fetch-gcc-local.sh -n       no pull; require the image in the local store
+#   ./scripts/fetch-gcc-local.sh -r       run docker/podman through sudo
+#   ./scripts/fetch-gcc-local.sh -o FILE  write the archive elsewhere
 #
 # The default image (https://github.com/klange/toaru-build-tools) is an Ubuntu
 # xenial with the gcc 10.3.0 x86_64-pc-toaru cross toolchain in /root/gcc_local;
@@ -45,7 +45,7 @@
 # Until then use -r, i.e. the root Podman storage.
 set -euo pipefail
 
-DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 PLATFORM=${PLATFORM:-linux/amd64}
 
 force=0

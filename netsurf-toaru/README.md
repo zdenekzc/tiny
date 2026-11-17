@@ -105,7 +105,7 @@ static builds; the stock code only finds them by `dlopen()`ing
 
 Prerequisites:
 
-- the ToaruOS sysroot produced by `../mktcc.sh` (`_build/tcc-toaru/lib`)
+- the ToaruOS sysroot produced by `../scripts/mktcc.sh` (`_build/tcc-toaru/lib`)
 - a ToaruOS source checkout (`_build/download/toaruos-src`, produced by
   `../tests/run-toaru.sh`)
 - host `gcc`, GNU `ld`, `make`, `perl`, `curl`, `python3`

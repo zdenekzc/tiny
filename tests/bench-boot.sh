@@ -32,7 +32,7 @@ RAM=${RAM:-1024}
 SMP=${SMP:-2}
 
 die() { echo "error: $*" >&2; exit 1; }
-. "$TOP/need.sh"   # need(): dependency check with package-install hints
+. "$TOP/scripts/need.sh"   # need(): dependency check with package-install hints
 [[ $N =~ ^[0-9]+$ && $N -ge 1 ]] || die "N must be a positive integer"
 
 need qemu-system-x86_64

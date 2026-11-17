@@ -163,7 +163,7 @@ Yutani + vlastní software rasterizer Nuklear command bufferu.
 make toaru
 ```
 
-Build potřebuje sysroot z `./mktcc.sh` a strom ToaruOS 2.3.2:
+Build potřebuje sysroot z `./scripts/mktcc.sh` a strom ToaruOS 2.3.2:
 `_build/download/toaruos-src` (oba věci vytvoří `./tests/run-toaru.sh`).
 Výsledek je statický ELF, do kterého jsou přilinkované potřebné klientské
 knihovny ToaruOS (`lib/yutani.c`, `hashmap.c`, `list.c`, `pex.c`, `kbd.c`,

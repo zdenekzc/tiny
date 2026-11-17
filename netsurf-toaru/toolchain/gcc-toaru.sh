@@ -107,4 +107,4 @@ ld -m elf_x86_64 -static -Ttext-segment=0x3F000000 -o "$out" \
   "$SYS/crt0.o" "$SYS/crti.o" "$PREFIX/lib/libc-main.o" "${link_args[@]}" \
   "$SYS/crtn.o" -L"$PREFIX/lib" -L"$SYS" -lc || exit $?
 
-python3 -I "$TOP/toaru-elfpad.py" "$out" "$out" >/dev/null || exit $?
+python3 -I "$TOP/scripts/toaru-elfpad.py" "$out" "$out" >/dev/null || exit $?

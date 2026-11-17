@@ -14,9 +14,9 @@ An entry is therefore [8 bytes address][NUL-terminated name], without alignment,
 after another. This script finds the table in the binary (it tries a start at every string and
 takes the longest continuous run) and can compute names from it:
 
-    ./toaru-ksym.py _build/kx/kernel --find          # where the table is, how many entries
-    ./toaru-ksym.py _build/kx/kernel --addr 0x204dd2 # name + offset after it
-    ./toaru-ksym.py _build/kx/kernel --stack dump.txt
+    ./scripts/toaru-ksym.py _build/kx/kernel --find          # where the table is, how many entries
+    ./scripts/toaru-ksym.py _build/kx/kernel --addr 0x204dd2 # name + offset after it
+    ./scripts/toaru-ksym.py _build/kx/kernel --stack dump.txt
 
 --stack reads the HMP "x/...xg $rsp" dump (lines "0x...: 0x... 0x... ...") and converts every
 value that sits in the kernel text into "name+0x...". The return address on any line

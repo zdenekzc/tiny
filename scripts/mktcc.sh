@@ -7,8 +7,8 @@
 #   _build/tcc-toaru/test                   tcc/toaru/test.c: ctor, argv, %g, malloc
 #   _build/tcc-toaru/tcc-guest              tcc itself as an ELF for running in ToaruOS
 #
-#   ./mktcc.sh              patches the clone, compiles, prepares the sysroot, verifies both images
-#   ./mktcc.sh -p           before that deletes the clones and downloads TinyCC again
+#   ./scripts/mktcc.sh              patches the clone, compiles, prepares the sysroot, verifies both images
+#   ./scripts/mktcc.sh -p           before that deletes the clones and downloads TinyCC again
 #
 # The download is a git clone cached in _import/download/tinycc; the build uses
 # a copy in _build/download/tinycc so the patches never touch the cache.
@@ -55,7 +55,7 @@
 #   and the result is ET_DYN at address 0, which the kernel refuses (README §5g).
 set -euo pipefail
 
-DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 B=$DIR/_build
 IMPORT=$DIR/_import/download
 CLONE=$IMPORT/tinycc
@@ -109,7 +109,7 @@ chmod 755 "$OUT/bin/x86_64-toaru-tcc"
 # ------------------------------------------------------------- 3. sysroot
 if [[ ! -f $TOARULIB/libc.a || ! -f $TOARUINC/stdio.h ]]; then
     echo "extracting libc and headers of ToaruOS from the ISO ..."
-    "$DIR/mklibc.sh" > /dev/null || die "mklibc.sh"
+    "$DIR/scripts/mklibc.sh" > /dev/null || die "mklibc.sh"
 fi
 LIB=$OUT/lib
 rm -rf "$LIB"; mkdir -p "$LIB/include"
@@ -268,6 +268,6 @@ for p in hello test tcc-guest; do check_image "$OUT/$p"; done
 echo
 echo "done: $OK OK, $NOK problems"
 echo "in the guest:  fetch http://10.0.2.2:8010/hello -o /tmp/hello; chmod 755 /tmp/hello; /tmp/hello"
-echo "comparison with gcc in the guest:  ./toaru-vm.sh start ; PORT=8010 ./guest-tcc.sh"
+echo "comparison with gcc in the guest:  ./scripts/toaru-vm.sh start ; PORT=8010 ./scripts/guest-tcc.sh"
 echo "kernel crash in elf_exec (fixed, reason in): tcc/toaru/README.md"
 [[ $NOK == 0 ]]

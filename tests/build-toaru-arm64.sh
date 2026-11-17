@@ -28,8 +28,8 @@ fi
 # Ensure the required artefacts exist or build them.
 ensure_artifacts() {
     if [[ -z "$SRC" || ! -f "${SRC}/bootstub" || ! -f "${SRC}/misaka-kernel" || ! -f "${SRC}/ramdisk.igz" ]]; then
-        echo "== ARM64 artefacts missing — building with ./build-toaruos.sh -a native"
-        "${REPO_ROOT}/build-toaruos.sh" -a native || { echo "Failed to build ARM64 ToaruOS" >&2; exit 1; }
+        echo "== ARM64 artefacts missing — building with ./scripts/build-toaruos.sh -a native"
+        "${REPO_ROOT}/scripts/build-toaruos.sh" -a native || { echo "Failed to build ARM64 ToaruOS" >&2; exit 1; }
         # After build, re-detect the directory.
         if [[ -d "${BUILD_DIR}/toaruos-native-aarch64/src" ]]; then
             SRC="${BUILD_DIR}/toaruos-native-aarch64/src"

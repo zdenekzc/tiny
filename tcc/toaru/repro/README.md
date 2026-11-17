@@ -1,13 +1,13 @@
 # Reproduction: which programs compiled by tcc survive a ToaruOS boot
 
 Each file is a standalone program that `x86_64-toaru-tcc` compiles and
-`../../../guest-tcc-repro.sh` runs in the guest. Measurement is **always one
+`../../../scripts/guest-tcc-repro.sh` runs in the guest. Measurement is **always one
 program per one boot** – after a kernel crash the guest is a write-off and there is
 nothing left to measure (`arch_fatal()` stops all CPUs).
 
 ```console
-$ OUT=_build/repro/r1 ./guest-tcc-repro.sh            # all programs here
-$ OUT=_build/repro/r2 ./guest-tcc-repro.sh test       # and test.c from ../
+$ OUT=_build/repro/r1 ./scripts/guest-tcc-repro.sh            # all programs here
+$ OUT=_build/repro/r2 ./scripts/guest-tcc-repro.sh test       # and test.c from ../
 ```
 
 | program | constructor | `main` reads `argc` | `.bss` past page boundary | result |
