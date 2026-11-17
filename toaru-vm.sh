@@ -26,6 +26,20 @@
 #            ACCEL=tcg QEMU_EXTRA='-d int -D /tmp/qemu-int.log' (additional QEMU
 #            arguments; -d int logs exceptions only in TCG, not with KVM)
 #   ./toaru-vm.sh start
+#
+# ISO-less boot (preferred when _build/kernel.mb and _build/ramdisk.tgz exist,
+# see mc-toaru/mkiso.sh): QEMU loads the kernel and the ramdisk directly and
+# no ISO is needed:
+#   INITRD=_build/ramdisk.tgz ./toaru-vm.sh start
+#            INITRD=/path  boot with -kernel/-initrd; KERNEL=/path overrides
+#                          the kernel (default _build/kernel.mb, the stock
+#                          kernel with the multiboot graphics request cleared
+#                          — QEMU's multiboot loader refuses a kernel whose
+#                          header asks for VBE).  The kernel command line is
+#                          fixed: "root=/dev/ram0 migrate" plus
+#                          "start=--headless" (HEADLESS=1) or
+#                          "start=live-session vid=auto" (HEADLESS=0) — the
+#                          same line the stock boot.sys would assemble.
 set -u
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -40,6 +54,10 @@ if [[ -z ${ISO:-} ]]; then
     done
     ISO=${ISO:-${DIR}/_import/download/image.iso}
 fi
+# ISO-less boot: INITRD (a gzipped tar, e.g. _build/ramdisk.tgz) plus KERNEL
+# (a kernel whose multiboot header does not request VBE, e.g. _build/kernel.mb).
+INITRD=${INITRD:-}
+KERNEL=${KERNEL:-${DIR}/_build/kernel.mb}
 SHARE=${SHARE:-${DIR}/_build/share.img}
 WORK=${WORK:-${DIR}/_build/work}
 RAM=${RAM:-1024}
@@ -82,7 +100,12 @@ mine() {
 running() { mine "${PIDF}"; }
 
 do_start() {
-    [[ -f "$ISO" ]] || die "missing ISO: $ISO (rename it or use ISO=/path)"
+    if [[ -n $INITRD ]]; then
+        [[ -f "$INITRD" ]] || die "missing INITRD: $INITRD (run ./mc-toaru/mkiso.sh)"
+        [[ -f "$KERNEL" ]] || die "missing KERNEL: $KERNEL (run ./mc-toaru/mkiso.sh)"
+    else
+        [[ -f "$ISO" ]] || die "missing ISO: $ISO (rename it or use ISO=/path)"
+    fi
     [[ -f "$SHARE" ]] || die "missing disk image: $SHARE"
     command -v qemu-system-x86_64 >/dev/null || die "missing qemu-system-x86_64"
     # the path to a unix socket fits in ~108 characters (sockaddr_un structure),
@@ -130,11 +153,27 @@ do_start() {
     # 99_runstart.sh execs the compositor instead of getty, so ttyS1 stays
     # silent; commands must be typed into the graphical Terminal (build-toaru.sh
     # does that with the QEMU monitor's sendkey).
-    local -a display=(-display none) bootmode=()
+    local -a display=(-display none) bootmode=() bootsrc=()
     [[ $VISIBLE == 1 ]] && display=(-display "$DISPLAY_BACKEND")
     [[ $HEADLESS == 1 ]] && bootmode=(-fw_cfg name=opt/org.toaruos.bootmode,string=headless)
     case $HEADLESS in 0|1) ;; *) die "HEADLESS should be 0 or 1" ;; esac
     case $VISIBLE in 0|1) ;; *) die "VISIBLE should be 0 or 1" ;; esac
+
+    if [[ -n $INITRD ]]; then
+        # Direct kernel boot.  The kernel command line is what boot.sys would
+        # assemble (boot/boot/config.c): root on the tarfs ramdisk, "migrate"
+        # for a writable root, and the boot mode; the fw_cfg bootmode is not
+        # consumed here because only boot.sys reads it.
+        local kern_append="root=/dev/ram0 migrate"
+        if [[ $HEADLESS == 1 ]]; then
+            kern_append+=" start=--headless"
+        else
+            kern_append+=" start=live-session vid=auto"
+        fi
+        bootsrc=(-kernel "$KERNEL" -initrd "$INITRD" -append "$kern_append")
+    else
+        bootsrc=(-cdrom "$ISO")
+    fi
 
     # -M pc is intentional: ata.ko binds to the PIIX IDE 8086:7010/8086:7111 and on q35
     # ToaruOS cannot even read its own CD. Network: the only NIC in ToaruOS is e1000.
@@ -147,7 +186,7 @@ do_start() {
     # goes to stdio via "-serial mon:stdio", ttyS0 to a file.
     qemu-system-x86_64 "${accel[@]}" \
         -M pc -m "$RAM" -smp "$SMP" \
-        -cdrom "$ISO" -vga std "${sound[@]}" \
+        "${bootsrc[@]}" -vga std "${sound[@]}" \
         -drive format=raw,if=none,id=share,file="$SHARE" \
         -device ide-hd,drive=share,bus=ide.0,unit=0 \
         -netdev user,id=n0 -device e1000,netdev=n0 \

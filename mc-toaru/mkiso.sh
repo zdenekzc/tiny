@@ -12,6 +12,21 @@
 # into /extras inside the ramdisk (never into / — files on / would clutter
 # the desktop icons), repacks the ramdisk, rebuilds fat.img (kernel +
 # ramdisk + EFI loader) and finally creates the ISO.
+#
+# Besides the ISO it also writes two artifacts for booting WITHOUT the ISO:
+#
+#   _build/ramdisk.tgz   the repacked ramdisk (same bytes as ramdisk.igz,
+#                        friendly name: it is an ordinary gzipped tar, so
+#                        "tar tzf" and file managers can open it directly)
+#   _build/kernel.mb     the stock kernel with the multiboot1 "request
+#                        graphics mode" flag cleared.  QEMU's built-in
+#                        multiboot loader refuses to load a kernel whose
+#                        header asks for VBE ("multiboot knows VBE. we
+#                        don't"), so without the patch "qemu -kernel"
+#                        silently drops to the BIOS and hangs.
+#
+# Boot straight from the files (no ISO, no genisoimage needed):
+#   INITRD=_build/ramdisk.tgz ./toaru-vm.sh start
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -30,6 +45,7 @@ SRC_EXTRA=${SRC_EXTRA:-$TOP/_build/push}
 EXTRA_DIR=${EXTRA_DIR:-extras}   # payload subdirectory in the ramdisk; files must
                                  # NOT go to / — they would clutter the desktop icons
 OUT=${1:-$TOP/_build/custom.iso}
+mkdir -p "$TOP/_tmp"
 WORK=$(mktemp -d "$TOP/_tmp/mkiso.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
@@ -45,6 +61,7 @@ need tar
 need gzip
 need du
 need fallocate
+need python3
 
 [[ -f "$ISO_IN" ]] || die "missing source ISO: $ISO_IN"
 [[ -x "$MC_BIN" ]] || die "missing patched mc: $MC_BIN (run ./mc-toaru/build.sh mc)"
@@ -113,6 +130,25 @@ genisoimage -V TOARUOS -R -J \
     -b boot.sys -c bootcat -no-emul-boot -boot-load-size 44 \
     -eltorito-alt-boot -e fat.img -no-emul-boot \
     -o "$OUT" "$WORK/base" >/dev/null
+
+# Artifacts for the ISO-less boot path: qemu -kernel kernel.mb -initrd ramdisk.tgz.
+echo "== writing $TOP/_build/ramdisk.tgz and $TOP/_build/kernel.mb"
+cp "$WORK/base/ramdisk.igz" "$TOP/_build/ramdisk.tgz"
+python3 -I - "$WORK/base/kernel" "$TOP/_build/kernel.mb" <<'PY'
+import struct, sys
+data = bytearray(open(sys.argv[1], "rb").read())
+idx = data.find(struct.pack("<I", 0x1BADB002))
+if idx < 0:
+    sys.exit("multiboot1 header not found in the kernel")
+magic, flags, checksum = struct.unpack_from("<III", data, idx)
+# bit 2 = "request graphics mode (VBE)"; QEMU's multiboot loader refuses
+# such a kernel, the stock boot.sys handles graphics itself and does not
+# need the request either.
+flags &= ~0x4
+checksum = (-(magic + flags)) & 0xFFFFFFFF
+struct.pack_into("<III", data, idx, magic, flags, checksum)
+open(sys.argv[2], "wb").write(bytes(data))
+PY
 
 echo "done: $OUT ($(stat -c%s "$OUT") B)"
 echo "boot in QEMU:"
