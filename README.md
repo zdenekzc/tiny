@@ -60,7 +60,7 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
    `_build/minicmd/mini-commander` with the cross compiler → `_output/mc`
    (`mc-toaru/build.sh mc`),
 5. downloads `nuklear.h` into `_import/download/` for browsing in the guest
-   (the IDE uses its own vendored copies in `nuklear-ide/_import/`),
+   (the IDE fetches its own copies into `_import/nuklear-ide/` on demand),
 6. builds the native Nuklear IDE for ToaruOS (`_output/nuklear-ide-toaru`)
    and packs the ramdisk payload into an ISO: `/extras/nuklear-ide`, `/mc`,
    `/extras/tcc_test`, `/extras/tcc/{bin/tcc,include,lib}`, the sources from
@@ -187,8 +187,9 @@ Nuklear has no terminal backend, so there is no text-mode variant.
 can also be built standalone with `make -C nuklear-ide toaru`. The in-guest
 compiler is `/extras/tcc/bin/tcc`.
 
-Nuklear's headers stay in `nuklear-ide/_import/`; `./fetch-nuklear.sh`
-re-downloads them from a pinned upstream commit. See
+Nuklear's headers live in `_import/nuklear-ide/`; both IDE builds fetch them
+on demand with `nuklear-ide/fetch-nuklear.sh`, which downloads them from a
+pinned upstream commit. See
 `nuklear-ide/README.md` for shortcuts, architecture and porting notes.
 
 ## Controlling the VM
@@ -277,12 +278,12 @@ tiny/
 │   ├─ toaru_backend.h     # Yutani window + software Nuklear rasterizer
 │   ├─ toaru/build.sh      # static ToaruOS build (build-toaru installs it)
 │   ├─ demo/hello.c        # F5 demo program
-│   ├─ fetch-nuklear.sh    # re-download the headers from upstream
-│   └─ _import/            # downloaded nuklear.h + nuklear_glfw_gl2.h
+│   └─ fetch-nuklear.sh    # re-download the headers from upstream
 ├─ toaruos-ext2-sparse-bug.md  # ext2 sparse-file bug report (upstream is archived)
 ├─ _import/                # downloads: ISO, sources, clones, tarballs (safe to delete)
 │   ├─ download/           # image.iso, toaruos-src, tinycc, nuklear.h, netsurf*
-│   └─ mini-commander/     # unmodified mini-commander clone
+│   ├─ mini-commander/     # unmodified mini-commander clone
+│   └─ nuklear-ide/        # Nuklear headers fetched on demand
 ├─ _build/                 # build trees and artifacts (safe to delete)
 │   ├─ download/           # extracted sources and dependency build trees
 │   ├─ tcc-toaru/          # cross tcc, sysroot, tcc-guest, test programs
@@ -299,7 +300,9 @@ tiny/
 └─ README.md
 ```
 
-`_import/`, `_build/` and `_output/` can be deleted at any time; `user/` **cannot** — its
+`_import/`, `_build/` and `_output/` can be deleted at any time (the Nuklear
+IDE headers in `_import/nuklear-ide/` come back with one run of
+`nuklear-ide/fetch-nuklear.sh`); `user/` **cannot** — its
 contents are copied into the root of the shared disk on every run (and
 override built-in files of the same name). Directories starting with an
 underscore are treated as disposable, which is why user data belongs in

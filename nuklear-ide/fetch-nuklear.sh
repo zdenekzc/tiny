@@ -1,7 +1,8 @@
 #!/bin/sh
 # Download the Nuklear headers used by nuklear-ide.
 #
-# The headers are committed in _import/ so the example builds offline.  Run
+# The headers are downloaded into ../_import/nuklear-ide/ (not tracked in git;
+# the pinned commit keeps repeated builds reproducible).  Run
 # this script when you deliberately want to refresh them; it downloads
 # nuklear.h and the GLFW/OpenGL2 backend from the Immediate-Mode-UI/Nuklear
 # repository.
@@ -13,7 +14,7 @@ set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REF=${NK_REF:-bab18497df988c171fd0d82baad798e1e0e34259}
-DEST=${NK_DEST:-$HERE/_import}
+DEST=${NK_DEST:-$HERE/../_import/nuklear-ide}
 BASE="https://raw.githubusercontent.com/Immediate-Mode-UI/Nuklear/$REF"
 
 die() {

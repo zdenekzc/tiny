@@ -52,13 +52,13 @@
 #define NK_INCLUDE_FONT_BAKING
 #define NK_INCLUDE_DEFAULT_FONT
 #define NK_IMPLEMENTATION
-#include "_import/nuklear.h"
+#include "../_import/nuklear-ide/nuklear.h"
 
 #ifdef IDE_TOARU
 #include "toaru_backend.h"
 #else
 #define NK_GLFW_GL2_IMPLEMENTATION
-#include "_import/nuklear_glfw_gl2.h"
+#include "../_import/nuklear-ide/nuklear_glfw_gl2.h"
 #endif
 
 #ifndef PATH_MAX

@@ -548,6 +548,10 @@ demo() {
     if ! grep -aqF $'\033[0;30;46m' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
         echo "  *** the current panel item is not highlighted"; rc=1
     fi
+    # The F9 hint is printed with a blue background (SGR 0;97;44).
+    if ! grep -aqF $'\033[0;97;44m [F9] return to mini-commander' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
+        echo "  *** the F9 hint does not have the blue background"; rc=1
+    fi
 
     # NetSurf: start the compositor (the serial getty has no graphical
     # session), then load the test page with verbose logging.  Parsing, DOM

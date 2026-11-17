@@ -81,7 +81,7 @@ NK_DEST=/tmp/nk ./fetch-nuklear.sh  # kamkoli jinam
 
 Skript stáhne `nuklear.h` a `demo/glfw_opengl2/nuklear_glfw_gl2.h` z
 `Immediate-Mode-UI/Nuklear`, ověří základní markery a teprve pak soubory
-přepíše. Výchozí pin odpovídá aktuálně commitnutým hlavičkám.
+přepíše. Výchozí pin odpovídá hlavičkám, se kterými byl IDE naposledy testován.
 
 ## Ovládání
 
@@ -124,11 +124,11 @@ stejné chování editoru a nemusí se kopírovat celý `nk_do_edit`.
 
 ## Co je uvnitř
 
-Všechno je v jediném `main.c` (plus stažené hlavičky Nuklearu v `_import/`):
+Všechno je v jediném `main.c` (plus stažené hlavičky Nuklearu v `../_import/nuklear-ide/`):
 
 - **UI** — Nuklear kreslí menu, toolbar, strom, taby, editor, output a status
   bar. Vykresluje se přes GLFW/OpenGL 2.1 backend
-  `_import/nuklear_glfw_gl2.h`.
+  `../_import/nuklear-ide/nuklear_glfw_gl2.h`.
 - **Editor** — `struct nk_text_edit` z Nuklearu pro každý tab. Uložená verze
   textu slouží jako baseline pro hvězdičku „změněno“. Pro syntaxi se navíc
   staví pole offsetů začátků řádků a stav blokových komentářů.

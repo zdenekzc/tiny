@@ -25,6 +25,15 @@ LD=${LD:-ld}
 AR=${AR:-ar}
 
 die() { echo "error: $*" >&2; exit 1; }
+
+# The Nuklear headers are a download, not a tracked file: fetch them when they
+# are missing (same pinned upstream commit as the Linux build).
+NK_HEADER=$IDE_DIR/../_import/nuklear-ide/nuklear.h
+if [[ ! -f $NK_HEADER ]]; then
+    echo "== Nuklear headers missing — running fetch-nuklear.sh"
+    "$IDE_DIR/fetch-nuklear.sh" || die "fetch-nuklear.sh failed"
+fi
+
 [[ -f $SYS/crt0.o && -f $SYS/libc.a && -d $SYS/include ]] ||
     die "missing sysroot $SYS — run ./scripts/mktcc.sh"
 [[ -f $TOARU_SRC/lib/yutani.c ]] ||

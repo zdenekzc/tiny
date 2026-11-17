@@ -134,6 +134,15 @@ if [[ ! -d "${TOARU_SRC}" ]]; then
         || die "git clone ToaruOS"
 fi
 
+# nuklear-ide/toaru/ and netsurf-toaru/ expect the sources also in
+# _build/download — seed it the same way build-toaru.sh does (never over an
+# existing tree; those builds patch lib/graphics.c, so the pristine _import
+# clone must stay untouched).
+if [[ ! -d "${BUILD_DIR}/download/toaruos-src" ]]; then
+    mkdir -p "${BUILD_DIR}/download"
+    cp -a "${TOARU_SRC}" "${BUILD_DIR}/download/toaruos-src"
+fi
+
 # ------------------------------------- 3) TinyCC: cross + tcc for ToaruOS
 if [[ ! -x "${TCC}" || ! -f "${TCC_GUEST}" \
       || ! -f "${SYSROOT}/libc.a" ]]; then
@@ -294,10 +303,27 @@ demo() {
     "${VM}" send '/extras/compile_examples.sh; echo __T3__'
     wait_for __T3__ || { echo "  *** compile_examples.sh did not finish"; rc=1; return $rc; }
 
-    # mc exits with F10; we send its escape sequence directly (ESC[21~)
+    # mc exits with F10; we send its escape sequences directly.  Before
+    # quitting, run one command on mc's command line: its output stays on the
+    # normal screen until F9 — that is where the [F9] hint is printed.
+    send_raw() { printf '%s' "$1" > "${BUILD_DIR}/work/in"; }
     "${VM}" send '/bin/mc /extras/demo'
     sleep 3
-    "${VM}" send "$(printf '\033[21~')"
+    send_raw 'echo __MC_ENTER__'
+    sleep 1
+    # Enter arrives from the terminal as CR; the ncurses shim translates it
+    send_raw "$(printf '\r')"
+    local en
+    for en in $(seq 1 10); do
+        "${VM}" log 2000 2>/dev/null | grep -qx '__MC_ENTER__' && break
+        sleep 1
+    done
+    if ! "${VM}" log 4000 2>/dev/null | grep -aq '\[F9\] return to mini-commander'; then
+        echo "  *** the command output did not wait for F9"; rc=1
+    fi
+    send_raw "$(printf '\033[20~')"   # F9 — back to the panels
+    sleep 1
+    send_raw "$(printf '\033[21~')"   # F10 — quit mc
     sleep 2
 
     text=$("${VM}" log 100000 2>/dev/null || true)
@@ -318,6 +344,11 @@ demo() {
     fi
     if ! grep -aq 'Quit' <<< "$text"; then
         echo "  *** mini-commander did not draw (the Quit hint is missing)"; rc=1
+    fi
+    # The F9 hint is printed with a blue background (SGR 0;97;44) so it stands
+    # out; the raw log (out.log) carries the escape sequences, `log` strips them.
+    if ! grep -aqF $'\033[0;97;44m [F9] return to mini-commander' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
+        echo "  *** the F9 hint does not have the blue background"; rc=1
     fi
 
     "${VM}" stop > /dev/null 2>&1 || true

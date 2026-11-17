@@ -14,7 +14,12 @@ LDLIBS += $(GLFW_LIBS) -lGL -lm -lpthread -ldl
 TARGET := nuklear-ide.bin
 TCC_SRC ?= ../_build/download/tinycc
 SOURCES := main.c
-HEADERS := _import/nuklear.h _import/nuklear_glfw_gl2.h
+HEADERS := ../_import/nuklear-ide/nuklear.h ../_import/nuklear-ide/nuklear_glfw_gl2.h
+
+# The Nuklear headers are a download (see fetch-nuklear.sh), not tracked files:
+# this rule fetches them when they are missing.
+../_import/nuklear-ide/%.h:
+	./fetch-nuklear.sh
 
 .PHONY: all run tcc toaru clean
 
