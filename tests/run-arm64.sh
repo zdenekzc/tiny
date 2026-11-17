@@ -161,8 +161,14 @@ for src in /extras/examples/*.c; do
 done
 GUEST_EOF
     chmod 755 "${W}/extras/compile_examples.sh"
+    # Everything belongs to the guest's "local" user (uid/gid 1000): the
+    # extraction already flattened the stock owners, and our own payload
+    # files would otherwise carry the Linux user's uid (measured 2026-11-18:
+    # the whole tree including home/local/ came out as the host uid, so the
+    # local user could not enter its own home).  Same lesson as mkiso.sh.
     ( cd "${W}" && find . -mindepth 1 -maxdepth 1 -printf '%P\0' |
-        tar --null -cf - -T - ) | gzip -9 -n > "${RAMDISK_A64}"
+        tar --null --owner=1000 --group=1000 -cf - -T - ) \
+        | gzip -9 -n > "${RAMDISK_A64}"
     rm -rf "${W}"
 fi
 echo "== ramdisk: ${RAMDISK_A64}"
