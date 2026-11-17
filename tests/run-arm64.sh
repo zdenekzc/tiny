@@ -13,7 +13,8 @@
 #   2. builds TinyCC for aarch64 ToaruOS (scripts/mktcc-aarch64.sh) and
 #      repacks the ramdisk with the payload: /extras/tcc (guest tcc + whole
 #      sysroot), /extras/examples with the sample sources, a cross-compiled
-#      /extras/hello and a /bin/tcc symlink (see tcc/toaru/README-aarch64.md),
+#      /extras/hello, mini-commander (/extras/mc, /bin/mc symlink) and
+#      a /bin/tcc symlink (see tcc/toaru/README-aarch64.md),
 #   3. starts a HEADLESS (no window) control VM on the serial line and
 #      verifies that the guest reaches the login prompt, answers commands
 #      and compiles/runs tcc_hello.c with the in-guest tcc,
@@ -56,11 +57,18 @@ need unzip
 
 # ------------------------------------------------------- 1) artefacts
 # The official v2.3.2 release ships aarch64-virt.zip with exactly the three
-# artifacts this script boots (verified 2026-11-17).  A local build is used
-# only when the release cannot be downloaded.
+# artifacts this script boots (verified 2026-11-17).  A LOCAL build (made by
+# ./scripts/build-toaruos.sh -a, with toaruos-patches applied — e.g. the
+# virtio keyboard keys fix) is preferred when present, because it fixes
+# upstream issues the release kernel has; the release is the fallback.
 REL_DIR="${IMPORT_DIR}/download/aarch64-virt"
 REL_ZIP="${IMPORT_DIR}/download/aarch64-virt.zip"
 REL_URL="https://github.com/klange/toaruos/releases/download/v2.3.2/aarch64-virt.zip"
+
+if [[ -d "${BUILD_DIR}/toaruos-native-aarch64/src" ]] ||
+   [[ -d "${BUILD_DIR}/toaruos-docker-aarch64/src" ]]; then
+    echo "== using the local ToaruOS aarch64 build (toaruos-patches applied)"
+fi
 
 if [[ ! -f "${REL_DIR}/misaka-kernel" ]]; then
     if [[ ! -f "${REL_ZIP}" ]]; then
@@ -76,18 +84,14 @@ if [[ ! -f "${REL_DIR}/misaka-kernel" ]]; then
     fi
 fi
 
-# Prefer the release artifacts; fall back to a local build (native, then docker).
 SRC=""
-if [[ -f "${REL_DIR}/bootstub" && -f "${REL_DIR}/misaka-kernel" &&
-      -f "${REL_DIR}/ramdisk.igz" ]]; then
+if [[ -d "${BUILD_DIR}/toaruos-native-aarch64/src" ]]; then
+    SRC="${BUILD_DIR}/toaruos-native-aarch64/src"
+elif [[ -d "${BUILD_DIR}/toaruos-docker-aarch64/src" ]]; then
+    SRC="${BUILD_DIR}/toaruos-docker-aarch64/src"
+elif [[ -f "${REL_DIR}/bootstub" && -f "${REL_DIR}/misaka-kernel" &&
+        -f "${REL_DIR}/ramdisk.igz" ]]; then
     SRC="${REL_DIR}"
-fi
-if [[ -z "${SRC}" ]]; then
-    if [[ -d "${BUILD_DIR}/toaruos-native-aarch64/src" ]]; then
-        SRC="${BUILD_DIR}/toaruos-native-aarch64/src"
-    elif [[ -d "${BUILD_DIR}/toaruos-docker-aarch64/src" ]]; then
-        SRC="${BUILD_DIR}/toaruos-docker-aarch64/src"
-    fi
 fi
 
 if [[ -z "${SRC}" || ! -f "${SRC}/bootstub" || ! -f "${SRC}/misaka-kernel" ||
@@ -115,19 +119,32 @@ echo "== artefacts: ${SRC}"
 TCC_A64="${BUILD_DIR}/tcc-toaru-aarch64"
 RAMDISK_A64="${BUILD_DIR}/ramdisk-a64.tgz"
 PUSH_A64="${BUILD_DIR}/push-a64"
+MC_A64="${BUILD_DIR}/output/mc-aarch64"
 
 if [[ ! -x "${TCC_A64}/tcc-guest-aarch64" || ! -f "${TCC_A64}/lib/libtcc1.a" ]]; then
     echo "== building TinyCC for aarch64 ToaruOS ..."
     "${REPO_ROOT}/scripts/mktcc-aarch64.sh" || die "mktcc-aarch64.sh"
 fi
 
-if [[ ! -s "${RAMDISK_A64}" || "${SRC}/ramdisk.igz" -nt "${RAMDISK_A64}" ]]; then
+# mini-commander: the mc-toaru port (ncurses shim + compat) is plain C, so the
+# aarch64 build is the same recipe with our aarch64 cross tcc.
+if [[ ! -x "${MC_A64}/mc" ]]; then
+    echo "== building mini-commander for aarch64 ToaruOS ..."
+    TCC="${TCC_A64}/bin/aarch64-toaru-tcc" SYSROOT="${TCC_A64}/lib" \
+        OUT="${MC_A64}" "${REPO_ROOT}/mc-toaru/build.sh" mc || die "mc aarch64"
+fi
+
+if [[ ! -s "${RAMDISK_A64}" ||
+      -n $(find "${SRC}/ramdisk.igz" "${TCC_A64}/tcc-guest-aarch64" \
+               "${MC_A64}/mc" -newer "${RAMDISK_A64}" 2>/dev/null | head -1) ]]; then
     echo "== preparing the ramdisk payload (tcc + examples) ..."
     rm -rf "${PUSH_A64}"
     W=$(mktemp -d "${BUILD_DIR}/a64payload.XXXXXX")
     gzip -dc "${SRC}/ramdisk.igz" | tar -xf - -C "${W}"
     mkdir -p "${W}/extras/tcc/bin" "${W}/extras/tcc/lib" "${W}/extras/examples"
     install -m 755 "${TCC_A64}/tcc-guest-aarch64" "${W}/extras/tcc/bin/tcc"
+    install -m 755 "${MC_A64}/mc" "${W}/extras/mc"
+    ln -s /extras/mc "${W}/bin/mc"
     install -m 644 "${TCC_A64}/lib/crt0.o" "${TCC_A64}/lib/crti.o" \
                    "${TCC_A64}/lib/crtn.o" "${TCC_A64}/lib/libc.a" \
                    "${TCC_A64}/lib/libtcc1.a" "${W}/extras/tcc/lib/"
@@ -142,6 +159,10 @@ Run them with:
 
     tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
     /extras/compile_examples.sh
+
+mini-commander:
+
+    mc /extras/examples      (also /bin/mc)
 GUEST_EOF
     # a cross-compiled hello: works even before any guest-side compilation
     "${TCC_A64}/bin/aarch64-toaru-tcc" -o "${W}/extras/hello" \
@@ -149,17 +170,25 @@ GUEST_EOF
         || die "cross tcc hello"
     chmod 755 "${W}/extras/hello"
     ln -s /extras/tcc/bin/tcc "${W}/bin/tcc"
-    cat > "${W}/extras/compile_examples.sh" <<'GUEST_EOF'
+    # ToaruOS's esh has no for loop and splits commands at ';', so the file
+    # list is generated here (same approach as build-toaru.sh on x86).
+    {
+        cat <<'GUEST_EOF'
 #!/bin/sh
 # Compiles and runs all *.c in /extras/examples with /bin/tcc.  Output goes
 # to /tmp so nothing is written to the ramdisk.
-for src in /extras/examples/*.c; do
-    name=$(basename "$src" .c)
-    echo "== $src"
-    /bin/tcc -o "/tmp/$name" "$src"
-    if stat -q "/tmp/$name" then "/tmp/$name"
-done
+#
+#   /extras/compile_examples.sh
 GUEST_EOF
+        for src in "${REPO_ROOT}"/tests/examples/*.c; do
+            name=$(basename "$src" .c)
+            printf 'echo "== /extras/examples/%s.c"\n' "$name"
+            printf 'if stat -q "/tmp/%s" then rm "/tmp/%s"\n' "$name" "$name"
+            printf '/bin/tcc -o "/tmp/%s" "/extras/examples/%s.c"\n' "$name" "$name"
+            printf 'if stat -q "/tmp/%s" then "/tmp/%s"\n' "$name" "$name"
+            printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /extras/examples/%s.c"\n\n' "$name" "$name"
+        done
+    } > "${W}/extras/compile_examples.sh"
     chmod 755 "${W}/extras/compile_examples.sh"
     # Everything belongs to the guest's "local" user (uid/gid 1000): the
     # extraction already flattened the stock owners, and our own payload
@@ -228,7 +257,12 @@ serial_send() {   # serial_send <text> - one command line to the guest
 }
 
 serial_log() {    # serial_log [lines] - last lines of the guest serial output
-    tail -n "${1:-40}" "${WORK}/serial.log" 2> /dev/null | tr -d '\r'
+    # CSI and OSC sequences are stripped (like toaru-vm.sh log does): mc draws
+    # cell by cell with SGR between the fragments, so patterns would never
+    # match the raw stream.
+    tail -n "${1:-40}" "${WORK}/serial.log" 2> /dev/null |
+        tr -d '\r' |
+        sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g; s/\x1b\][^\a]*\a//g'
 }
 
 wait_for() {      # wait_for <regex> [timeout s] - watch the serial log
@@ -278,10 +312,43 @@ demo() {
         return $rc
     fi
 
+    # mini-commander: panels must draw and F10 must return to the shell.
+    serial_send '/bin/mc /extras/examples'
+    # tcg emulation of aarch64 is slow: mc's first draw took >30 s (measured),
+    # hence the generous timeout; the panels must be visible before F10.
+    if ! wait_for '+-- /extras/examples ' 120; then
+        echo "  *** mini-commander did not draw its panels"
+        rc=1
+        return $rc
+    fi
+    sleep 2
+    # F10 must be sent RAW, without the trailing newline serial_send adds —
+    # the getty line discipline delivers the sequence differently then and
+    # mc does not quit (measured; the raw sequence quits within seconds).
+    printf '\033[21~' > "${WORK}/serial.in"
+    sleep 2
+    # The shell must answer afterwards: "echo __MC_QUIT__" only executes if
+    # mc really exited (with mc alive it would sit in mc's command line),
+    # and a prompt has to follow the marker — the old prompts stay in the
+    # 2000-line log window, so the marker alone would match too early.
+    serial_send 'echo __MC_QUIT__'
+    if ! wait_for '__MC_QUIT__' 60; then
+        echo "  *** mini-commander did not exit on F10"
+        rc=1
+        return $rc
+    fi
+    if ! awk -v m="__MC_QUIT__" '$0 == m { seen = 1; next }
+            seen && /local@livecd/ { found = 1 }
+            END { exit !found }' <<< "$(serial_log 2000)"; then
+        echo "  *** F10 did not return mini-commander to the shell"
+        rc=1
+        return $rc
+    fi
+
     qemu_stop
 
     if [[ $rc == 0 ]]; then
-        echo "== check OK: ToaruOS ARM64 boots, answers, and the in-guest tcc works"
+        echo "== check OK: ToaruOS ARM64 boots, answers, and the in-guest tcc and mc work"
     else
         echo "== check FOUND A PROBLEM (see above)"
     fi
@@ -319,7 +386,7 @@ QEMU_PID=0
 
 cat <<EOF
 
-Done. ToaruOS ARM64 is running.
+Done. ToaruOS ARM64 is running (payload: tcc, mc and examples under /extras).
 
 Shutting down the VM:  ./scripts/toaru-vm.sh stop   (or: pkill -f qemu-system-aarch64)
 Serial line:           ${WORK}/serial.log

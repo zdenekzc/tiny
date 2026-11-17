@@ -165,6 +165,25 @@ prepare_src() {
 need git
 prepare_src
 
+# ------------------------------------------------------------------ patches
+# Repository-local fixes for ToaruOS itself (applied to the working copy, the
+# pristine _import clone stays untouched).  Idempotent: a marker check skips
+# already-applied patches, so re-runs and cached builds are safe.
+if [[ $arch == aarch64 ]]; then
+    for p in "$DIR"/toaruos-patches/*.patch; do
+        [[ -e $p ]] || continue
+        # idempotence: the first line the patch adds is the marker — if the
+        # target file already contains it, the patch is applied.
+        marker=$(grep '^+[^+]' "$p" | head -1 | sed 's/^+//')
+        if grep -qsF "$marker" "$SRC/kernel/arch/aarch64/virtio.c" 2>/dev/null; then
+            echo "== patch already applied: $(basename "$p")"
+            continue
+        fi
+        echo "== applying $(basename "$p") ..."
+        (cd "$SRC" && patch -p1 -s < "$p") || die "patch $p"
+    done
+fi
+
 # ------------------------------------------------------------------- docker
 if [[ $mode == docker ]]; then
     prefix=()

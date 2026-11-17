@@ -1,0 +1,22 @@
+The aarch64 virtio keyboard driver back-converts Linux input event codes to
+PS/2 set-1 scancodes (plain below 0x49, extended via ext_key_map with the
+0xE0 prefix).  Three common keys were missing from ext_key_map and were
+dropped with "virtio: unmapped keycode N" (measured in the 2.3.2 release,
+2026-11-18): Insert (110), Delete (111) and Keypad Enter (96).  mini-commander
+under the graphical Terminal never sees them, because the Terminal translates
+kernel key events to ANSI sequences for the pty.
+
+The target scancodes are exactly the ones lib/kbd.c already maps:
+0x52 -> KEY_INSERT, 0x53 -> KEY_DEL, 0x1c -> KEY_NUM_ENTER (key '\n').
+
+--- a/kernel/arch/aarch64/virtio.c
++++ b/kernel/arch/aarch64/virtio.c
+@@ -290,6 +290,9 @@ static const uint8_t ext_key_map[256] = {
+ 	[0x6a] = 0x4D, /* RIGHT */
+ 	[0x6b] = 0x4F, /* end */
+ 	[0x6d] = 0x51, /* page down */
++	[0x60] = 0x1c, /* keypad enter (kbd.c: KEY_NUM_ENTER, '\n') */
++	[0x6e] = 0x52, /* insert     (kbd.c: KEY_INSERT) */
++	[0x6f] = 0x53, /* delete     (kbd.c: KEY_DEL) */
+ 	[0x7d] = 0x5b, /* left super */
+ };
