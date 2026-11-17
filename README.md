@@ -49,7 +49,7 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
 2. clones the ToaruOS sources (tag `v2.3.2`) into `_import/download/toaruos-src`
    (copied to the guest only so they can be browsed in `mc`),
 3. runs `mktcc.sh`, which clones TinyCC into `_import/download/tinycc` and
-   builds (from a copy in `_build/download/tinycc`) two things:
+   builds (directly in the clone `_import/download/tinycc`) two things:
    - **the host cross compiler**
      `_build/tcc-toaru/bin/x86_64-toaru-tcc` + sysroot `_build/tcc-toaru/lib`
      (`libc.a`, `crt0.o`, `crti.o`, `crtn.o`, `libtcc1.a`, `include/`),
@@ -59,8 +59,8 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
 4. clones mini-commander into `_import/mini-commander`, builds the copy in
    `_build/minicmd/mini-commander` with the cross compiler → `_output/mc`
    (`mc-toaru/build.sh mc`),
-5. downloads `nuklear.h` into `_import/download/` for browsing in the guest
-   (the IDE fetches its own copies into `_import/nuklear-ide/` on demand),
+5. fetches the Nuklear headers into `_import/nuklear-ide/` (pinned commit;
+   used by the IDE build and for browsing in the guest),
 6. builds the native Nuklear IDE for ToaruOS (`_output/nuklear-ide-toaru`)
    and packs the ramdisk payload into an ISO: `/extras/nuklear-ide`, `/mc`,
    `/extras/tcc_test`, `/extras/tcc/{bin/tcc,include,lib}`, the sources from
@@ -176,7 +176,7 @@ make run            # builds/uses TinyCC, opens demo/hello.c; F5 compiles and ru
 
 Requires GLFW 3 development headers and OpenGL (`glfw-devel` +
 `mesa-libGL-devel` on Fedora) and a host TinyCC. `make tcc` uses `tcc` from
-`PATH` or builds one from `_build/download/tinycc`; `TCC=/path/to/tcc`
+`PATH` or builds one from `_import/download/tinycc`; `TCC=/path/to/tcc`
 overrides it. TinyCC is C-only, so C++ files use `CXX` for the actual build.
 
 There is also a native **ToaruOS** build: a decorated, resizable Yutani window
@@ -240,7 +240,6 @@ there the ISO/bootloader path remains the right choice.
 | `VISIBLE=0` | no QEMU window (serial line only); the automated check still runs |
 | `HEADLESS=1` | headless boot even when the QEMU window is open (getty on the serial line) |
 | `DEMO=0` | skip the verification VM (step 7) |
-| `MB=128` | size of the blank IDE disk `share.img` in MiB (default 64) |
 | `ACCEL=tcg` | no KVM (slower, but `-d int` logs exceptions under TCG) |
 | `QEMU_EXTRA=...` | extra QEMU arguments (e.g. `-s` for the gdb stub) |
 
@@ -281,14 +280,13 @@ tiny/
 │   └─ fetch-nuklear.sh    # re-download the headers from upstream
 ├─ toaruos-ext2-sparse-bug.md  # ext2 sparse-file bug report (upstream is archived)
 ├─ _import/                # downloads: ISO, sources, clones, tarballs (safe to delete)
-│   ├─ download/           # image.iso, toaruos-src, tinycc, nuklear.h, netsurf*
+│   ├─ download/           # image.iso, toaruos-src, tinycc, netsurf tarballs
 │   ├─ mini-commander/     # unmodified mini-commander clone
 │   └─ nuklear-ide/        # Nuklear headers fetched on demand
 ├─ _build/                 # build trees and artifacts (safe to delete)
-│   ├─ download/           # extracted sources and dependency build trees
+│   ├─ toaruos-src/        # working copy of the sources (IDE/NetSurf patch it)
 │   ├─ tcc-toaru/          # cross tcc, sysroot, tcc-guest, test programs
 │   ├─ push/               # ramdisk payload before packing (goes to /extras)
-│   ├─ share.img           # blank IDE disk (the VM always attaches one)
 │   ├─ ramdisk.tgz         # repacked ramdisk for the ISO-less boot
 │   ├─ kernel.mb           # stock kernel with the multiboot VBE request cleared
 │   └─ work/               # FIFO, logs and pid files of the running VM
@@ -303,7 +301,7 @@ tiny/
 `_import/`, `_build/` and `_output/` can be deleted at any time (the Nuklear
 IDE headers in `_import/nuklear-ide/` come back with one run of
 `nuklear-ide/fetch-nuklear.sh`); `user/` **cannot** — its
-contents are copied into the root of the shared disk on every run (and
+contents are copied into `/extras` on every run (and
 override built-in files of the same name). Directories starting with an
 underscore are treated as disposable, which is why user data belongs in
 `user/`.

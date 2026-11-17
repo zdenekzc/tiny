@@ -97,7 +97,6 @@ PY
 die() { echo "error: $*" >&2; exit 2; }
 [[ -x $TCC ]] || die "missing $TCC — ./scripts/mktcc.sh"
 [[ -f $LIB/libc.a ]] || die "missing sysroot $LIB — ./scripts/mktcc.sh"
-[[ -f $WORK/../share.img ]] || die "missing _build/share.img — ./scripts/mkshare.sh"
 
 if [[ $# -gt 0 ]]; then
     PROGS=("$@")

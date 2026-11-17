@@ -32,13 +32,9 @@ set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TOP=$(cd "$HERE/.." && pwd)
 # The ISO is downloaded into _import/download by tests/run-toaru.sh or
-# tests/build-toaru.sh; keep
-# accepting the old _build/download copy for existing workspaces.
+# tests/build-toaru.sh; the download is shared with everything else.
 if [[ -z ${ISO_IN:-} ]]; then
-    for f in "$TOP/_import/download/image.iso" "$TOP/_build/download/toaruos-2.3.2.iso"; do
-        [[ -f $f ]] && { ISO_IN=$f; break; }
-    done
-    ISO_IN=${ISO_IN:-$TOP/_import/download/image.iso}
+    ISO_IN=$TOP/_import/download/image.iso
 fi
 MC_BIN=${MC_BIN:-$TOP/_output/mc}
 SRC_EXTRA=${SRC_EXTRA:-$TOP/_build/push}

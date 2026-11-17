@@ -3,26 +3,26 @@
 #
 #   ./build.sh
 #
-# Output: _build/download/netsurf-3.11/netsurf
+# Output: _build/netsurf/netsurf-3.11/netsurf
 #
 # Prerequisites:
 #   - ToaruOS libc sysroot made by ../scripts/mktcc.sh   (_build/tcc-toaru/lib)
-#   - ToaruOS source checkout                    (_build/download/toaruos-src,
+#   - ToaruOS source checkout                    (_build/toaruos-src,
 #                                                 created by ../tests/run-toaru.sh)
 #   - host gcc, GNU ld, python3, curl, make, perl
 #
 # The script downloads NetSurf 3.11, the toaruos/netsurf-frontend-toaru
 # frontend and the NetSurf support libraries.  The downloaded tarballs are
 # cached in _import/download (so they survive deleting _build); the sources
-# are unpacked and built under _build/download.
+# are unpacked and built under _build/netsurf.
 #
 # Environment overrides:
-#   NETSURF_DL       build/download dir      (default _build/download)
+#   NETSURF_DL       netsurf build dir       (default _build/netsurf)
 #   NETSURF_CACHE    tarball cache           (default _import/download)
 #   NETSURF_DEPS     dependency build dir    (default $NETSURF_DL/netsurf-deps)
 #   NETSURF_PREFIX   cross install prefix    (default _build/netsurf-prefix)
 #   TOARU_SYSROOT    ToaruOS sysroot         (default _build/tcc-toaru/lib)
-#   TOARU_SRC        ToaruOS source tree     (default $NETSURF_DL/toaruos-src)
+#   TOARU_SRC        ToaruOS source tree     (default _build/toaruos-src)
 #   SKIP_DEPS=1      reuse an already built $NETSURF_PREFIX
 #   JOBS             parallel make jobs      (default nproc)
 set -euo pipefail
@@ -30,14 +30,14 @@ set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TOP=$(cd "$HERE/.." && pwd)
 
-DL=${NETSURF_DL:-$TOP/_build/download}
+DL=${NETSURF_DL:-$TOP/_build/netsurf}
 CACHE=${NETSURF_CACHE:-$TOP/_import/download}
 DEPS=${NETSURF_DEPS:-$DL/netsurf-deps}
 DEPS_CACHE=$CACHE/netsurf-deps
 SRC=${NETSURF_SRC:-$DL/netsurf-3.11}
 PREFIX=${NETSURF_PREFIX:-$TOP/_build/netsurf-prefix}
 SYS=${TOARU_SYSROOT:-$TOP/_build/tcc-toaru/lib}
-TOARU_SRC=${TOARU_SRC:-$DL/toaruos-src}
+TOARU_SRC=${TOARU_SRC:-$TOP/_build/toaruos-src}
 TOOL=$HERE/toolchain
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 4)}
 

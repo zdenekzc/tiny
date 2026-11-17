@@ -52,7 +52,7 @@ make run                 # otevře demo/hello.c; F5 přeloží a spustí
 
 `make run` závisí na cíli `tcc`. Ten použije `tcc` z `PATH`, nebo sestaví
 hostitelský TinyCC ze zdrojů, které už má tento repozitář v
-`../_build/download/tinycc` (typicky po `./tests/run-toaru.sh`). Vlastní
+`../_import/download/tinycc` (typicky po `./tests/run-toaru.sh`). Vlastní
 cestu lze předat přes `TCC=/cesta/k/tcc`; pokud TinyCC leží ve stromu zdrojů
 a potřebuje `-B`, lze nastavit i `TCC_B=/cesta/k/tinycc`.
 
@@ -144,7 +144,7 @@ Všechno je v jediném `main.c` (plus stažené hlavičky Nuklearu v `../_import
   `rename()`.
 
 TinyCC se hledá v `IDE_TCC` / `TCC`, v `PATH`, a potom v typických místech
-tohoto repozitáře (`_build/download/tinycc/tcc`). Pokud je to build ze zdrojů,
+tohoto repozitáře (`_import/download/tinycc/tcc`). Pokud je to build ze zdrojů,
 IDE automaticky přidá `-B<cesta>`.
 
 **C++:** TinyCC je C kompilátor a nemá C++ frontend. Soubory `.cc`, `.cpp` a
@@ -164,7 +164,7 @@ make toaru
 ```
 
 Build potřebuje sysroot z `./scripts/mktcc.sh` a strom ToaruOS 2.3.2:
-`_build/download/toaruos-src` (oba věci vytvoří `./tests/run-toaru.sh`).
+`_build/toaruos-src` (oba věci vytvoří `./tests/run-toaru.sh`).
 Výsledek je statický ELF, do kterého jsou přilinkované potřebné klientské
 knihovny ToaruOS (`lib/yutani.c`, `hashmap.c`, `list.c`, `pex.c`, `kbd.c`,
 `decorations.c`, `menu.c`, `graphics.c`, `text.c`, `icon_cache.c`, `markup.c`,

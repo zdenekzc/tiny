@@ -49,7 +49,6 @@
 #   HEADLESS=1    force headless boot even for the visible VM
 #   DEMO=0        skip the automatic control VM
 #   WITH_NETSURF=0  skip NetSurf (built on first use; on by default)
-#   MB=64         size of the (unused) blank IDE disk in MiB
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -58,7 +57,6 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BUILD_DIR="${REPO_ROOT}/_build"
 IMPORT_DIR="${REPO_ROOT}/_import"
 IMPORT_DOWNLOAD="${IMPORT_DIR}/download"
-BUILD_DOWNLOAD="${BUILD_DIR}/download"
 DOWNLOAD="${IMPORT_DOWNLOAD}"
 ISO="${DOWNLOAD}/image.iso"
 TOARU_SRC="${DOWNLOAD}/toaruos-src"
@@ -69,23 +67,17 @@ SYSROOT="${BUILD_DIR}/tcc-toaru/lib"
 MC_SRC="${BUILD_DIR}/minicmd/mini-commander"
 MC_IMPORT="${IMPORT_DIR}/mini-commander"
 MC_BIN="${REPO_ROOT}/_output/mc"
-NUKLEAR="${DOWNLOAD}/nuklear.h"
+NUKLEAR="${REPO_ROOT}/_import/nuklear-ide/nuklear.h"
 NETSURF_BUILD="${REPO_ROOT}/netsurf-toaru/build.sh"
-NETSURF_DL="${BUILD_DOWNLOAD}"
+NETSURF_DL="${BUILD_DIR}/netsurf"
 NETSURF_CACHE="${IMPORT_DOWNLOAD}"
 NETSURF_BIN="${NETSURF_DL}/netsurf-3.11/netsurf"
 PUSH="${BUILD_DIR}/push"
-SHARE_IMG="${BUILD_DIR}/share.img"
-SHARE_TEST="${BUILD_DIR}/share-test.img"
 VM="${REPO_ROOT}/scripts/toaru-vm.sh"
 
 # If cached imports exist and the build tree is gone, seed it from _import.
 # (Never copy over an existing tree: git's pack files are read-only, so a
 # repeated cp would fail.)
-if [[ -d "${IMPORT_DOWNLOAD}/tinycc" && ! -d "${BUILD_DIR}/download/tinycc" ]]; then
-    mkdir -p "${BUILD_DIR}/download"
-    cp -a "${IMPORT_DOWNLOAD}/tinycc" "${BUILD_DIR}/download/"
-fi
 if [[ -d "${IMPORT_DIR}/mini-commander" && ! -d "${BUILD_DIR}/minicmd/mini-commander" ]]; then
     mkdir -p "${BUILD_DIR}/minicmd"
     cp -a "${IMPORT_DIR}/mini-commander" "${BUILD_DIR}/minicmd/"
@@ -95,7 +87,6 @@ VISIBLE=${VISIBLE:-1}
 HEADLESS=${HEADLESS:-0}   # 1 = headless boot even when a QEMU window is open
 DEMO=${DEMO:-1}
 WITH_NETSURF=${WITH_NETSURF:-1}
-MB=${MB:-64}
 BOOT_ISO=""
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -172,10 +163,8 @@ fi
 
 # ---------------------------------------------------------------- 5) Nuklear
 if [[ ! -s "${NUKLEAR}" ]]; then
-    echo "== downloading Nuklear ..."
-    curl -L --fail -o "${NUKLEAR}.part" \
-        "https://raw.githubusercontent.com/Immediate-Mode-UI/Nuklear/master/nuklear.h"
-    mv "${NUKLEAR}.part" "${NUKLEAR}"
+    echo "== fetching the Nuklear headers (pinned commit, same as the IDE) ..."
+    "${REPO_ROOT}/nuklear-ide/fetch-nuklear.sh" || die "fetch-nuklear.sh"
 fi
 
 # -------------------------------------------- 6) ramdisk contents
@@ -219,7 +208,7 @@ cp "${NUKLEAR}" "${PUSH}/nuklear.h"
 # Working copy of the ToaruOS sources: the IDE and NetSurf builds patch
 # lib/graphics.c for static sprite decoding, so they must not touch the
 # pristine clone in _import/download — they build against this copy instead.
-WORK_SRC="${BUILD_DOWNLOAD}/toaruos-src"
+WORK_SRC="${BUILD_DIR}/toaruos-src"
 if [[ -f "${TOARU_SRC}/lib/yutani.c" && ! -f "${WORK_SRC}/lib/yutani.c" ]]; then
     echo "== copying ToaruOS sources for the IDE/NetSurf build ..."
     mkdir -p "${WORK_SRC}"
@@ -353,13 +342,6 @@ GUEST_EOF
 mkdir -p "${PUSH}/demo"
 cp "${PUSH}/README.txt" "${PUSH}/demo/README.txt"
 
-# toaru-vm.sh always attaches one IDE disk; it is no longer used to carry
-# data, so keep a small blank image around for it.
-if [[ ! -s "${SHARE_IMG}" ]]; then
-    echo "== creating blank disk image ${SHARE_IMG} ..."
-    truncate -s "${MB}M" "${SHARE_IMG}"
-fi
-
 # Build the bootable ISO: every file from PUSH goes into the ramdisk, and the
 # patched mc is additionally installed as /bin/mc so it is on PATH.
 echo "== building ramdisk ISO ..."
@@ -368,10 +350,9 @@ BOOT_ISO="${BUILD_DIR}/custom.iso"
 
 # ------------------------------------- 7) automatic check in a headless VM
 demo() {
-    cp "${SHARE_IMG}" "${SHARE_TEST}"
     local rc=0 text
     echo "== starting the control ToaruOS ..."
-    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" SHARE="${SHARE_TEST}" "${VM}" start > /dev/null
+    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" "${VM}" start > /dev/null
     VM_TEST_STARTED=1
 
     local i

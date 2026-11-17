@@ -10,8 +10,9 @@
 #   ./scripts/mktcc.sh              patches the clone, compiles, prepares the sysroot, verifies both images
 #   ./scripts/mktcc.sh -p           before that deletes the clones and downloads TinyCC again
 #
-# The download is a git clone cached in _import/download/tinycc; the build uses
-# a copy in _build/download/tinycc so the patches never touch the cache.
+# The build happens directly in the git clone in _import/download/tinycc;
+# the patch is guarded by a marker check, so re-runs are safe.  Delete the
+# tree to start from a fresh clone.
 #
 # Why a custom build instead of configure/make:
 #   * there is no make nor configure in the guest (that also applies to building tcc inside
@@ -58,8 +59,7 @@ set -euo pipefail
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 B=$DIR/_build
 IMPORT=$DIR/_import/download
-CLONE=$IMPORT/tinycc
-SRC=$B/download/tinycc
+SRC=$IMPORT/tinycc
 GEN=$B/gen
 OUT=$B/tcc-toaru
 TOARULIB=$B/toaru-lib            # crt0.o crti.o crtn.o libc.a (from the ISO, mklibc.sh)
@@ -73,17 +73,13 @@ bad() { echo "  ***  $*"; NOK=$((NOK+1)); }
 
 if [[ ${1:-} == -p ]]; then
     echo "refreshing the clone from repo.or.cz ..."
-    rm -rf "$SRC" "$CLONE"
+    rm -rf "$SRC"
 fi
 
 if [[ ! -d $SRC ]]; then
-    if [[ ! -d $CLONE ]]; then
-        echo "downloading TinyCC (repo.or.cz/tinycc) ..."
-        mkdir -p "$IMPORT"
-        git clone --depth 50 https://repo.or.cz/tinycc.git "$CLONE" > /dev/null || die "git clone"
-    fi
-    mkdir -p "$B/download"
-    cp -a "$CLONE" "$SRC"
+    echo "downloading TinyCC (repo.or.cz/tinycc) ..."
+    mkdir -p "$IMPORT"
+    git clone --depth 50 https://repo.or.cz/tinycc.git "$SRC" > /dev/null || die "git clone"
 fi
 git -C "$SRC" rev-parse -q --verify HEAD > /dev/null || die "$SRC is not a git clone"
 

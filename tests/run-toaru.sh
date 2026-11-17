@@ -55,7 +55,6 @@
 #   VISIBLE=0     no QEMU window (serial line only; automatic check still runs)
 #   HEADLESS=1    force headless boot even for the visible VM
 #   DEMO=0        skip the automatic control VM
-#   MB=64         size of the (unused) blank IDE disk in MiB
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -73,15 +72,12 @@ TEST_BIN="${BUILD_DIR}/tcc-toaru/test"
 SYSROOT="${BUILD_DIR}/tcc-toaru/lib"
 MC_SRC="${BUILD_DIR}/minicmd/mini-commander"
 MC_BIN="${REPO_ROOT}/_output/mc"
-NUKLEAR="${DOWNLOAD}/nuklear.h"
+NUKLEAR="${REPO_ROOT}/_import/nuklear-ide/nuklear.h"
 PUSH="${BUILD_DIR}/push"
-SHARE_IMG="${BUILD_DIR}/share.img"
-SHARE_TEST="${BUILD_DIR}/share-test.img"
 VM="${REPO_ROOT}/scripts/toaru-vm.sh"
 
 VISIBLE=${VISIBLE:-1}
 DEMO=${DEMO:-1}
-MB=${MB:-64}
 
 die() { echo "error: $*" >&2; exit 1; }
 . "$REPO_ROOT/scripts/need.sh"   # need(): dependency check with package-install hints
@@ -134,13 +130,11 @@ if [[ ! -d "${TOARU_SRC}" ]]; then
         || die "git clone ToaruOS"
 fi
 
-# nuklear-ide/toaru/ and netsurf-toaru/ expect the sources also in
-# _build/download — seed it the same way build-toaru.sh does (never over an
-# existing tree; those builds patch lib/graphics.c, so the pristine _import
-# clone must stay untouched).
-if [[ ! -d "${BUILD_DIR}/download/toaruos-src" ]]; then
-    mkdir -p "${BUILD_DIR}/download"
-    cp -a "${TOARU_SRC}" "${BUILD_DIR}/download/toaruos-src"
+# nuklear-ide/toaru/ and netsurf-toaru/ build against a working copy of the
+# sources in _build/toaruos-src (they patch lib/graphics.c, so the pristine
+# _import clone must stay untouched); seed it like build-toaru.sh does.
+if [[ ! -d "${BUILD_DIR}/toaruos-src" ]]; then
+    cp -a "${TOARU_SRC}" "${BUILD_DIR}/toaruos-src"
 fi
 
 # ------------------------------------- 3) TinyCC: cross + tcc for ToaruOS
@@ -167,10 +161,8 @@ fi
 
 # ---------------------------------------------------------------- 5) Nuklear
 if [[ ! -s "${NUKLEAR}" ]]; then
-    echo "== downloading Nuklear ..."
-    curl -L --fail -o "${NUKLEAR}.part" \
-        "https://raw.githubusercontent.com/Immediate-Mode-UI/Nuklear/master/nuklear.h"
-    mv "${NUKLEAR}.part" "${NUKLEAR}"
+    echo "== fetching the Nuklear headers (pinned commit, same as the IDE) ..."
+    "${REPO_ROOT}/nuklear-ide/fetch-nuklear.sh" || die "fetch-nuklear.sh"
 fi
 
 # -------------------------------------------- 6) ramdisk payload + custom ISO
@@ -255,13 +247,6 @@ GUEST_EOF
 mkdir -p "${PUSH}/demo"
 cp "${PUSH}/README.txt" "${PUSH}/demo/README.txt"
 
-# toaru-vm.sh always attaches one IDE disk; it is not used to carry data,
-# so keep a small blank image around for it.
-if [[ ! -s "${SHARE_IMG}" ]]; then
-    echo "== creating blank disk image ${SHARE_IMG} ..."
-    truncate -s "${MB}M" "${SHARE_IMG}"
-fi
-
 # Build the bootable ISO (payload inside the ramdisk); it also emits
 # _build/ramdisk.tgz and _build/kernel.mb for the ISO-less boot.
 echo "== building ramdisk ISO ..."
@@ -270,10 +255,9 @@ BOOT_ISO="${BUILD_DIR}/custom.iso"
 
 # ------------------------------------- 7) automatic check in a headless VM
 demo() {
-    cp "${SHARE_IMG}" "${SHARE_TEST}"
     local rc=0 text
     echo "== starting the control (headless) ToaruOS ..."
-    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" SHARE="${SHARE_TEST}" "${VM}" start > /dev/null
+    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" "${VM}" start > /dev/null
     VM_TEST_STARTED=1
 
     local i

@@ -41,8 +41,7 @@ need awk
 need sort
 
 if [[ -z ${ISO:-} ]]; then
-    for f in "$TOP/_import/download/image.iso" \
-             "$TOP/_build/download/toaruos-2.3.2.iso"; do
+    for f in "$TOP/_import/download/image.iso"; do
         [[ -f $f ]] && { ISO=$f; break; }
     done
     ISO=${ISO:-$TOP/_import/download/image.iso}

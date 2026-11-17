@@ -44,20 +44,18 @@ set -u
 
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # The ISO is downloaded into _import/download by tests/run-toaru.sh or
-# tests/build-toaru.sh; keep
-# accepting the old _build/download copy for existing workspaces.
+# tests/build-toaru.sh; the download is shared with everything else.
 if [[ -z ${ISO:-} ]]; then
-    for f in "${DIR}/_import/download/image.iso" \
-             "${DIR}/_build/download/toaruos-2.3.2.iso" \
-             "${DIR}/_build/download/image.iso"; do
-        [[ -f $f ]] && { ISO=$f; break; }
-    done
-    ISO=${ISO:-${DIR}/_import/download/image.iso}
+    ISO=${DIR}/_import/download/image.iso
 fi
 # ISO-less boot: INITRD (a gzipped tar, e.g. _build/ramdisk.tgz) plus KERNEL
 # (a kernel whose multiboot header does not request VBE, e.g. _build/kernel.mb).
 INITRD=${INITRD:-}
 KERNEL=${KERNEL:-${DIR}/_build/kernel.mb}
+# The IDE disk is optional: nothing mounts it any more (the payload travels
+# inside the ramdisk).  SHARE set explicitly must exist; the default blank
+# image is attached only when it happens to exist.
+SHARE_GIVEN=${SHARE:+1}
 SHARE=${SHARE:-${DIR}/_build/share.img}
 WORK=${WORK:-${DIR}/_build/work}
 RAM=${RAM:-1024}
@@ -106,7 +104,11 @@ do_start() {
     else
         [[ -f "$ISO" ]] || die "missing ISO: $ISO (rename it or use ISO=/path)"
     fi
-    [[ -f "$SHARE" ]] || die "missing disk image: $SHARE"
+    if [[ -n ${SHARE_GIVEN:-} ]]; then
+        [[ -f "$SHARE" ]] || die "missing disk image: $SHARE"
+    elif [[ ! -f "$SHARE" ]]; then
+        echo "note: no IDE disk ($SHARE not found) — booting without one"
+    fi
     command -v qemu-system-x86_64 >/dev/null || die "missing qemu-system-x86_64"
     # the path to a unix socket fits in ~108 characters (sockaddr_un structure),
     # too deep a WORK would only show up as "QEMU failed to start"
@@ -184,11 +186,15 @@ do_start() {
     # GenericError via QMP (HMP on the shared line has nowhere to send the result). Without
     # -nographic the QMP socket is separate and the guest is the same: ttyS1 still
     # goes to stdio via "-serial mon:stdio", ttyS0 to a file.
+    local -a sharedisk=()
+    if [[ -f "$SHARE" ]]; then
+        sharedisk=(-drive format=raw,if=none,id=share,file="$SHARE"
+                   -device ide-hd,drive=share,bus=ide.0,unit=0)
+    fi
     qemu-system-x86_64 "${accel[@]}" \
         -M pc -m "$RAM" -smp "$SMP" \
         "${bootsrc[@]}" -vga std "${sound[@]}" \
-        -drive format=raw,if=none,id=share,file="$SHARE" \
-        -device ide-hd,drive=share,bus=ide.0,unit=0 \
+        "${sharedisk[@]}" \
         -netdev user,id=n0 -device e1000,netdev=n0 \
         "${bootmode[@]}" \
         -fw_cfg name=opt/org.toaruos.gettyargs,string='-a root /dev/ttyS1 115200 linux' \

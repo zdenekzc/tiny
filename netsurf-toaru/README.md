@@ -106,7 +106,7 @@ static builds; the stock code only finds them by `dlopen()`ing
 Prerequisites:
 
 - the ToaruOS sysroot produced by `../scripts/mktcc.sh` (`_build/tcc-toaru/lib`)
-- a ToaruOS source checkout (`_build/download/toaruos-src`, produced by
+- a ToaruOS source checkout (`_build/toaruos-src`, produced by
   `../tests/run-toaru.sh`)
 - host `gcc`, GNU `ld`, `make`, `perl`, `curl`, `python3`
 
@@ -116,9 +116,9 @@ Prerequisites:
 
 The script downloads NetSurf and the support libraries on first use.  The
 tarballs are cached in `_import/download` (`_import/download/netsurf-deps`),
-the sources are unpacked and built in `_build/download/netsurf-deps`, and the
+the sources are unpacked and built in `_build/netsurf/netsurf-deps`, and the
 cross-built dependencies are installed into `_build/netsurf-prefix`.  Output:
-`_build/download/netsurf-3.11/netsurf`.  Deleting `_build/` therefore does not
+`_build/netsurf/netsurf-3.11/netsurf`.  Deleting `_build/` therefore does not
 force the tarballs to be downloaded again.
 
 Set `SKIP_DEPS=1` to reuse an already built prefix.
