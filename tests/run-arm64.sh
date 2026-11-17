@@ -6,9 +6,10 @@
 #   ./tests/run-arm64.sh
 #
 # What the script does (everything can be deleted and run again at any time):
-#   1. builds the ARM64 ToaruOS images when they are missing
-#      (./scripts/build-toaruos.sh -a native; a cached build is reused as is —
-#      there is no official aarch64 release, so the OS has to be built),
+#   1. downloads the official aarch64-virt.zip from the ToaruOS 2.3.2 release
+#      into _import/download/ and extracts bootstub + misaka-kernel +
+#      ramdisk.igz (a local ./scripts/build-toaruos.sh -a native build is
+#      used instead only when the release cannot be downloaded),
 #   2. starts a HEADLESS (no window) control VM on the serial line and
 #      verifies that the guest reaches the login prompt and answers commands,
 #   3. starts a VISIBLE ToaruOS ARM64 in QEMU and leaves it running.
@@ -35,6 +36,7 @@ set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BUILD_DIR="${REPO_ROOT}/_build"
+IMPORT_DIR="${REPO_ROOT}/_import"
 WORK="${BUILD_DIR}/work-arm64"
 
 VISIBLE=${VISIBLE:-1}
@@ -44,14 +46,43 @@ die() { echo "error: $*" >&2; exit 1; }
 . "$REPO_ROOT/scripts/need.sh"   # need(): dependency check with package-install hints
 
 need qemu-system-aarch64
+need curl
+need unzip
 
 # ------------------------------------------------------- 1) artefacts
-# Prefer the native build artefacts; fall back to the docker one if present.
+# The official v2.3.2 release ships aarch64-virt.zip with exactly the three
+# artifacts this script boots (verified 2026-11-17).  A local build is used
+# only when the release cannot be downloaded.
+REL_DIR="${IMPORT_DIR}/download/aarch64-virt"
+REL_ZIP="${IMPORT_DIR}/download/aarch64-virt.zip"
+REL_URL="https://github.com/klange/toaruos/releases/download/v2.3.2/aarch64-virt.zip"
+
+if [[ ! -f "${REL_DIR}/misaka-kernel" ]]; then
+    if [[ ! -f "${REL_ZIP}" ]]; then
+        echo "== downloading the official aarch64-virt.zip ..."
+        mkdir -p "${IMPORT_DIR}/download"
+        curl -L --fail -o "${REL_ZIP}.part" "${REL_URL}" \
+            || { rm -f "${REL_ZIP}.part"; REL_ZIP=""; }
+        [[ -n "${REL_ZIP}" ]] && mv "${REL_ZIP}.part" "${REL_ZIP}"
+    fi
+    if [[ -f "${REL_ZIP}" ]]; then
+        mkdir -p "${REL_DIR}"
+        unzip -o "${REL_ZIP}" -d "${REL_DIR}" > /dev/null || die "unzip aarch64-virt.zip"
+    fi
+fi
+
+# Prefer the release artifacts; fall back to a local build (native, then docker).
 SRC=""
-if [[ -d "${BUILD_DIR}/toaruos-native-aarch64/src" ]]; then
-    SRC="${BUILD_DIR}/toaruos-native-aarch64/src"
-elif [[ -d "${BUILD_DIR}/toaruos-docker-aarch64/src" ]]; then
-    SRC="${BUILD_DIR}/toaruos-docker-aarch64/src"
+if [[ -f "${REL_DIR}/bootstub" && -f "${REL_DIR}/misaka-kernel" &&
+      -f "${REL_DIR}/ramdisk.igz" ]]; then
+    SRC="${REL_DIR}"
+fi
+if [[ -z "${SRC}" ]]; then
+    if [[ -d "${BUILD_DIR}/toaruos-native-aarch64/src" ]]; then
+        SRC="${BUILD_DIR}/toaruos-native-aarch64/src"
+    elif [[ -d "${BUILD_DIR}/toaruos-docker-aarch64/src" ]]; then
+        SRC="${BUILD_DIR}/toaruos-docker-aarch64/src"
+    fi
 fi
 
 if [[ -z "${SRC}" || ! -f "${SRC}/bootstub" || ! -f "${SRC}/misaka-kernel" ||
@@ -179,6 +210,11 @@ if [[ "${DEMO}" == 1 ]]; then
 fi
 
 # --------------------------------------- 4) visible ToaruOS for the user
+if [[ "${VISIBLE}" == 1 && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    echo "warning: no DISPLAY - cannot open a QEMU window, using the serial line" >&2
+    VISIBLE=0
+fi
+
 if [[ "${VISIBLE}" == 1 ]]; then
     echo "== starting visible ToaruOS ARM64 in QEMU ..."
     qemu_start 1 "${WORK}/qemu-visible.log"

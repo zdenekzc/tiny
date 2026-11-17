@@ -11,6 +11,7 @@
 
 # program -> Fedora package (dnf)
 declare -A _NEED_PKG_FEDORA=(
+    [unzip]=unzip
     [7z]=p7zip-plugins
     [awk]=gawk
     [curl]=curl
@@ -25,7 +26,7 @@ declare -A _NEED_PKG_FEDORA=(
     [mmd]=mtools
     [mkfs.fat]=dosfstools
     [python3]=python3
-    [qemu-system-aarch64]=qemu-system-arm
+    [qemu-system-aarch64]=qemu-system-aarch64
     [qemu-system-x86_64]=qemu-system-x86
     [sort]=coreutils
     [tar]=tar
@@ -33,6 +34,7 @@ declare -A _NEED_PKG_FEDORA=(
 
 # program -> Debian/Ubuntu package (apt)
 declare -A _NEED_PKG_DEBIAN=(
+    [unzip]=unzip
     [7z]=p7zip-full
     [awk]=gawk
     [curl]=curl
@@ -47,7 +49,7 @@ declare -A _NEED_PKG_DEBIAN=(
     [mmd]=mtools
     [mkfs.fat]=dosfstools
     [python3]=python3
-    [qemu-system-aarch64]=qemu-system-arm
+    [qemu-system-aarch64]=qemu-system-aarch64
     [qemu-system-x86_64]=qemu-system-x86
     [sort]=coreutils
     [tar]=tar
