@@ -26,23 +26,24 @@
 #        - a cross compiler on the host (_build/tcc-toaru/bin/x86_64-toaru-tcc),
 #        - a tcc that runs INSIDE ToaruOS with the default path /extras/tcc
 #          (_build/tcc-toaru/tcc-guest),
-#   4. downloads mini-commander and compiles it with the cross tcc (_output/mc),
+#   4. downloads mini-commander and compiles it with the cross tcc
+#      (_build/output/mc),
 #   5. prepares the ramdisk payload with:
 #        /extras/mc, /extras/tcc/{bin/tcc,include,lib}, /extras/tcc_test,
-#        /extras/tests/examples/*.c, /extras/toaruos-src, compile_examples.sh
+#        /extras/examples/*.c, compile_examples.sh (tcc also /bin/tcc)
 #        and installs mc additionally as /bin/mc inside the ramdisk,
 #   6. makes _build/custom.iso (ramdisk embedded) plus _build/ramdisk.tgz
 #      and _build/kernel.mb,
 #   7. starts a HEADLESS (no window) control VM and verifies:
 #        - /extras/tcc_test (program compiled by the cross tcc),
-#        - tcc inside ToaruOS compiles and runs /extras/tcc_hello.c,
+#        - tcc inside ToaruOS compiles and runs /extras/examples/tcc_hello.c,
 #        - every example compiles and runs (/extras/compile_examples.sh),
 #        - mini-commander starts, draws its panels and quits with F10,
 #   8. starts a VISIBLE ToaruOS in QEMU and leaves it running.
 #
 # Inside the visible ToaruOS open the Terminal and run:
 #
-#   /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+#   tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
 #   mc /extras     (also /bin/mc)
 #
 # (When the VM is started by hand, pass the custom ISO or the initrd:
@@ -71,7 +72,7 @@ TCC_GUEST="${BUILD_DIR}/tcc-toaru/tcc-guest"
 TEST_BIN="${BUILD_DIR}/tcc-toaru/test"
 SYSROOT="${BUILD_DIR}/tcc-toaru/lib"
 MC_SRC="${BUILD_DIR}/minicmd/mini-commander"
-MC_BIN="${REPO_ROOT}/_output/mc"
+MC_BIN="${REPO_ROOT}/_build/output/mc"
 NUKLEAR="${REPO_ROOT}/_import/nuklear-ide/nuklear.h"
 PUSH="${BUILD_DIR}/push"
 VM="${REPO_ROOT}/scripts/toaru-vm.sh"
@@ -170,7 +171,7 @@ fi
 # above; nothing goes to / except mc as /bin/mc.
 echo "== preparing the ramdisk payload ..."
 rm -rf "${PUSH}"
-mkdir -p "${PUSH}/tcc/bin" "${PUSH}/tcc/lib" "${PUSH}/toaruos-src"
+mkdir -p "${PUSH}/tcc/bin" "${PUSH}/tcc/lib"
 
 # user files (the user/ directory in the project root) have precedence
 if [[ -d "${REPO_ROOT}/user" ]]; then
@@ -184,16 +185,13 @@ install -m 644 "${SYSROOT}/crt0.o" "${SYSROOT}/crti.o" "${SYSROOT}/crtn.o" \
                "${SYSROOT}/libc.a" "${SYSROOT}/libtcc1.a" "${PUSH}/tcc/lib/"
 cp -a "${SYSROOT}/include" "${PUSH}/tcc/include"
 
-# example source texts + the tcc_test source text
-cp "${REPO_ROOT}/tests/examples/"*.c "${PUSH}/"
-cp "${REPO_ROOT}/tcc/toaru/test.c" "${PUSH}/tcc_test.c"
+# example source texts + the tcc_test source text, all in /extras/examples
+mkdir -p "${PUSH}/examples"
+cp "${REPO_ROOT}/tests/examples/"*.c "${PUSH}/examples/"
+cp "${REPO_ROOT}/tcc/toaru/test.c" "${PUSH}/examples/tcc_test.c"
 
 # Nuklear (for browsing only for now; the term backend is not part of the image)
 cp "${NUKLEAR}" "${PUSH}/nuklear.h"
-
-# ToaruOS sources without .git, so they can be browsed in mc in the guest
-( cd "${TOARU_SRC}" && tar cf - --exclude=.git . ) \
-    | ( cd "${PUSH}/toaruos-src" && tar xf - )
 
 # script for compiling the examples directly in ToaruOS
 # ToaruOS's esh has no for loop and splits commands at ';', so the file list
@@ -201,27 +199,39 @@ cp "${NUKLEAR}" "${PUSH}/nuklear.h"
 {
     cat <<'GUEST_EOF'
 #!/bin/sh
-# Compiles and runs all *.c in /extras.  Output goes to /tmp so that
-# nothing is written to the ramdisk.
+# Compiles and runs all *.c in /extras/examples.  Output goes to /tmp so
+# that nothing is written to the ramdisk.
 #
-#   /extras/compile_examples.sh
+#   /extras/compile_examples.sh      (tcc is also /bin/tcc)
 #
-# All sources in /extras are plain C and TinyCC compiles and runs them;
-# tcc_test.c is the test program from tcc/toaru.
+# All sources in /extras/examples are plain C and TinyCC compiles and runs
+# them; tcc_test.c is the test program from tcc/toaru.
 if not stat -q /extras/tcc/bin/tcc then echo "tcc is missing from the ramdisk"
 if not stat -q /extras/tcc/bin/tcc then exit 1
 
 GUEST_EOF
-    for src in "${PUSH}"/*.c; do
+    for src in "${PUSH}"/examples/*.c; do
         name=$(basename "$src" .c)
-        printf 'echo "== /extras/%s.c"\n' "$name"
+        printf 'echo "== /extras/examples/%s.c"\n' "$name"
         printf 'if stat -q "/tmp/%s" then rm "/tmp/%s"\n' "$name" "$name"
-        printf '/extras/tcc/bin/tcc -o "/tmp/%s" "/extras/%s.c"\n' "$name" "$name"
+        printf '/bin/tcc -o "/tmp/%s" "/extras/examples/%s.c"\n' "$name" "$name"
         printf 'if stat -q "/tmp/%s" then "/tmp/%s"\n' "$name" "$name"
-        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /extras/%s.c"\n\n' "$name" "$name"
+        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /extras/examples/%s.c"\n\n' "$name" "$name"
     done
 } > "${PUSH}/compile_examples.sh"
 chmod +x "${PUSH}/compile_examples.sh"
+
+# README.txt sorts first in /extras/examples (strcmp order), so the automatic
+# mc viewer/editor check reaches it with a single Down arrow.
+cat > "${PUSH}/examples/README.txt" <<'GUEST_EOF'
+Example sources for TinyCC
+==========================
+
+Run them with:
+
+    tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
+    /extras/compile_examples.sh      (compiles and runs every *.c here)
+GUEST_EOF
 
 cat > "${PUSH}/README.txt" <<'GUEST_EOF'
 ToaruOS + TinyCC + mini-commander
@@ -230,9 +240,9 @@ ToaruOS + TinyCC + mini-commander
 All files are part of the ramdisk under /extras — no disk needs to be
 mounted and / stays clean for the desktop icons.
 
-TinyCC inside ToaruOS:
+TinyCC inside ToaruOS (also available as /bin/tcc):
 
-    /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+    tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
     /extras/compile_examples.sh
 
 mini-commander:
@@ -240,12 +250,8 @@ mini-commander:
     mc /            (also /bin/mc /)
 
 /extras/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a,
-libtcc1.a), /extras/toaruos-src contains the sources of ToaruOS 2.3.2.
+libtcc1.a); /extras/examples holds the example sources.
 GUEST_EOF
-
-# a tiny directory with a predictable layout, used by the automatic mc check
-mkdir -p "${PUSH}/demo"
-cp "${PUSH}/README.txt" "${PUSH}/demo/README.txt"
 
 # Build the bootable ISO (payload inside the ramdisk); it also emits
 # _build/ramdisk.tgz and _build/kernel.mb for the ISO-less boot.
@@ -256,8 +262,13 @@ BOOT_ISO="${BUILD_DIR}/custom.iso"
 # ------------------------------------- 7) automatic check in a headless VM
 demo() {
     local rc=0 text
+    # A leftover VM (e.g. from a previous run) would make "start" fail; the
+    # failure would otherwise hide behind "> /dev/null" and only show up as a
+    # 60 s boot timeout.
+    "${VM}" stop > /dev/null 2>&1 || true
     echo "== starting the control (headless) ToaruOS ..."
-    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" "${VM}" start > /dev/null
+    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" "${VM}" start > /dev/null \
+        || { echo "  *** could not start the control VM"; return 1; }
     VM_TEST_STARTED=1
 
     local i
@@ -281,7 +292,7 @@ demo() {
     wait_for __T1__ || { echo "  *** /extras/tcc_test did not finish"; rc=1; return $rc; }
 
     # esh does not handle && (only ;), hence two commands in a row
-    "${VM}" send '/extras/tcc/bin/tcc -o /tmp/tcc_hello /extras/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
+    "${VM}" send 'tcc -o /tmp/tcc_hello /extras/examples/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
     wait_for __T2__ || { echo "  *** tcc in ToaruOS did not compile tcc_hello.c"; rc=1; return $rc; }
 
     "${VM}" send '/extras/compile_examples.sh; echo __T3__'
@@ -291,7 +302,7 @@ demo() {
     # quitting, run one command on mc's command line: its output stays on the
     # normal screen until F9 — that is where the [F9] hint is printed.
     send_raw() { printf '%s' "$1" > "${BUILD_DIR}/work/in"; }
-    "${VM}" send '/bin/mc /extras/demo'
+    "${VM}" send '/bin/mc /extras/examples'
     sleep 3
     send_raw 'echo __MC_ENTER__'
     sleep 1
@@ -376,7 +387,7 @@ disk is mounted and / stays clean for the desktop icons.
 
 In the ToaruOS window open the Terminal and run:
 
-    /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+    tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
     mc /extras     (mc is also installed as /bin/mc)
 
 If you start the VM later by hand, pass the custom ISO or boot without it:

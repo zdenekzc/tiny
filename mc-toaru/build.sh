@@ -3,13 +3,13 @@
 # compiler from ../scripts/mktcc.sh, i.e. without QEMU and without compiling inside the guest.
 #
 #   ./build.sh probe            ttyprobe (termios / terminal size)
-#   ./build.sh mc               miniCommander  => _output/mc
-#   ./build.sh clean            deletes _output
+#   ./build.sh mc               miniCommander  => _build/output/mc
+#   ./build.sh clean            deletes _build/output
 #
 # Sources: _build/minicmd/mini-commander is an **unmodified** git clone of
-# https://github.com/Tomas-M/mini-commander.  It is built from a copy in _output/src, to
+# https://github.com/Tomas-M/mini-commander.  It is built from a copy in _build/output/src, to
 # which patches/mc-toaru.patch is applied (generated from that same tree:
-#   cd _output/src && git diff --no-index ... — see patches/README).
+#   cd _build/output/src && git diff --no-index ... — see patches/README).
 # The ToaruOS-specific layer is toaru/ (ncurses shim + compat + missing
 # headers); it is not copied into the sources, it is only given precedence over the
 # system headers via -I.
@@ -25,7 +25,7 @@ TOP=$(cd "$HERE/.." && pwd)
 TCC=${TCC:-$TOP/_build/tcc-toaru/bin/x86_64-toaru-tcc}
 SYSROOT=${SYSROOT:-$TOP/_build/tcc-toaru/lib}
 SRC=${SRC:-$TOP/_build/minicmd/mini-commander}   # unmodified miniCommander sources
-OUT=${OUT:-$TOP/_output}
+OUT=${OUT:-$TOP/_build/output}
 WORK=$OUT/src
 PATCH=$HERE/patches/mc-toaru.patch
 ELFPAD=$TOP/scripts/toaru-elfpad.py
@@ -42,7 +42,7 @@ check() {  # image format per the ToaruOS loader requirements
     python3 -I "$ELFPAD" --check "$1" || die "bad image format $1"
 }
 
-stage() {  # _output/src = clean sources + our patch, from scratch every time
+stage() {  # _build/output/src = clean sources + our patch, from scratch every time
     [[ -d $SRC ]] || die "missing miniCommander sources: $SRC (SRC=/path)"
     rm -rf "$WORK"; mkdir -p "$WORK"
     # Always from HEAD, not from the working tree: it may have changes already applied
@@ -53,7 +53,7 @@ stage() {  # _output/src = clean sources + our patch, from scratch every time
         (cd "$SRC" && tar cf - --exclude=.git .) | (cd "$WORK" && tar xf -) || die "copy of sources"
     fi
     if [[ -f $PATCH ]]; then
-        # patch(1), not "git apply": _output/ is inside the project repository
+        # patch(1), not "git apply": _build/output/ is inside the project repository
         # and git apply silently skips files that .gitignore matches.
         (cd "$WORK" && patch -p1 -s < "$PATCH") || die "patch $PATCH failed to apply"
         echo "applied patch: $(basename "$PATCH")"

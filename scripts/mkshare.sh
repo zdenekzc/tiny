@@ -48,7 +48,7 @@ truncate -s "${MB}M" "$IMG"
 # Fill in the allocation of all blocks (against sparse files from mke2fs -d).
 #
 # ToaruOS 2.3.2 modules/ext2.c has two bugs that only show up with sparse
-# files (measured 2026-11-13 on _output/mc):
+# files (measured 2026-11-13 on _build/output/mc):
 #
 #   * inode_read_block() checks the block index against inode->blocks/(BS/512).
 #     But i_blocks only counts ALLOCATED blocks, whereas the block index goes by

@@ -158,7 +158,7 @@ Zdrojáky jsou společné; `IDE_TOARU` přepne backend z GLFW/OpenGL na
 Yutani + vlastní software rasterizer Nuklear command bufferu.
 
 ```sh
-./toaru/build.sh                 # -> _output/nuklear-ide-toaru
+./toaru/build.sh                 # -> _build/output/nuklear-ide-toaru
 # nebo
 make toaru
 ```

@@ -8,7 +8,7 @@
 #
 # The source ISO is the unmodified ToaruOS 2.3.2 release ISO.  The script
 # extracts it, unpacks ramdisk.igz (a gzip-compressed tar), installs the
-# patched mc from _output/mc as /bin/mc, copies everything from _build/push
+# patched mc from _build/output/mc as /bin/mc, copies everything from _build/push
 # into /extras inside the ramdisk (never into / — files on / would clutter
 # the desktop icons), repacks the ramdisk, rebuilds fat.img (kernel +
 # ramdisk + EFI loader) and finally creates the ISO.
@@ -36,7 +36,7 @@ TOP=$(cd "$HERE/.." && pwd)
 if [[ -z ${ISO_IN:-} ]]; then
     ISO_IN=$TOP/_import/download/image.iso
 fi
-MC_BIN=${MC_BIN:-$TOP/_output/mc}
+MC_BIN=${MC_BIN:-$TOP/_build/output/mc}
 SRC_EXTRA=${SRC_EXTRA:-$TOP/_build/push}
 EXTRA_DIR=${EXTRA_DIR:-extras}   # payload subdirectory in the ramdisk; files must
                                  # NOT go to / — they would clutter the desktop icons
@@ -85,6 +85,11 @@ gzip -dc "$WORK/base/ramdisk.igz" | tar -xf - -C "$WORK/ramdisk"
 echo "== installing mc as /bin/mc"
 install -m 755 "$MC_BIN" "$WORK/ramdisk/bin/mc"
 
+# tcc on PATH: a symlink to the sysroot-carrying binary in /extras/tcc (the
+# compiled-in CONFIG_TCCDIR is /extras/tcc, so the symlink needs no -B).
+echo "== linking tcc as /bin/tcc"
+ln -s /extras/tcc/bin/tcc "$WORK/ramdisk/bin/tcc"
+
 if [[ -d "$SRC_EXTRA" ]]; then
     echo "== copying payload from $SRC_EXTRA into /$EXTRA_DIR"
     mkdir -p "$WORK/ramdisk/$EXTRA_DIR"
@@ -108,12 +113,18 @@ cp "$WORK/base/kernel" "$WORK/fatbase/kernel"
 cp "$WORK/base/ramdisk.igz" "$WORK/fatbase/ramdisk.igz"
 
 SPACE_REQ=$(du -s -B 2048 "$WORK/fatbase" | cut -f 1)
-# +25 sectors was enough for the original 7 MB FAT12 image; with a bigger
-# ramdisk the image crosses the FAT12 limit, so force FAT16 and leave a
-# larger margin for the two FAT copies and the root directory.
-SIZE=$(( (SPACE_REQ + 64) * 2048 ))
+# FAT12 tops out around 4084 clusters (the original 7 MB image), so force
+# FAT16 — but mkfs.fat refuses FAT16 below 4085 clusters, which a small
+# payload (no toaruos-src) drops below.  Clamp to a safe minimum, keep a
+# margin for the two FAT copies and the root directory, and switch to FAT32
+# if the payload ever outgrows FAT16.
+CLUSTERS=$(( SPACE_REQ + 64 ))
+(( CLUSTERS < 4200 )) && CLUSTERS=4200
+FAT_BITS=16
+(( CLUSTERS > 65000 )) && FAT_BITS=32
+SIZE=$(( CLUSTERS * 2048 ))
 fallocate -l "$SIZE" "$WORK/fat.img"
-mkfs.fat -F 16 -s 1 -S 2048 "$WORK/fat.img" >/dev/null
+mkfs.fat -F "$FAT_BITS" -s 1 -S 2048 "$WORK/fat.img" >/dev/null
 mmd -i "$WORK/fat.img" ::/efi
 mmd -i "$WORK/fat.img" ::/efi/boot
 mcopy -i "$WORK/fat.img" "$WORK/fatbase/kernel" ::/kernel

@@ -33,7 +33,7 @@ window with ToaruOS then opens (see "Inside ToaruOS" below if you start the VM
 by hand). The serial line is logged in as `root@livecd`; the graphical session
 as `local` (password `local`).
 
-Nothing under `_build/`, `_output/` or `_import/` is irreplaceable: they can be
+Nothing under `_build/` or `_import/` is irreplaceable: they can be
 deleted at any time and `build-toaru.sh` will download and build everything
 again.  `_import/` holds the downloads (ISO, source clones, tarballs), so
 deleting only `_build/` does not force anything to be downloaded again.
@@ -43,11 +43,10 @@ deleting only `_build/` does not force anything to be downloaded again.
 ## What the script does
 
 `tests/build-toaru.sh` performs these steps (only when needed — anything already
-built in `_build/` or `_output/` is not downloaded or rebuilt):
+built in `_build/` is not downloaded or rebuilt):
 
 1. downloads `image.iso` (ToaruOS 2.3.2) into `_import/download/`,
-2. clones the ToaruOS sources (tag `v2.3.2`) into `_import/download/toaruos-src`
-   (copied to the guest only so they can be browsed in `mc`),
+2. clones the ToaruOS sources (tag `v2.3.2`) into `_import/download/toaruos-src`,
 3. runs `mktcc.sh`, which clones TinyCC into `_import/download/tinycc` and
    builds (directly in the clone `_import/download/tinycc`) two things:
    - **the host cross compiler**
@@ -57,18 +56,19 @@ built in `_build/` or `_output/` is not downloaded or rebuilt):
      `_build/tcc-toaru/tcc-guest` (ToaruOS ELF, `CONFIG_TCCDIR=/extras/tcc`),
    - verification programs `_build/tcc-toaru/hello` and `.../test`,
 4. clones mini-commander into `_import/mini-commander`, builds the copy in
-   `_build/minicmd/mini-commander` with the cross compiler → `_output/mc`
+   `_build/minicmd/mini-commander` with the cross compiler → `_build/output/mc`
    (`mc-toaru/build.sh mc`),
 5. fetches the Nuklear headers into `_import/nuklear-ide/` (pinned commit;
    used by the IDE build and for browsing in the guest),
-6. builds the native Nuklear IDE for ToaruOS (`_output/nuklear-ide-toaru`)
+6. builds the native Nuklear IDE for ToaruOS (`_build/output/nuklear-ide-toaru`)
    and packs the ramdisk payload into an ISO: `/extras/nuklear-ide`, `/mc`,
    `/extras/tcc_test`, `/extras/tcc/{bin/tcc,include,lib}`, the sources from
-   `tests/examples/*.c`, `/extras/gcc_hello` (built on the host by
-   `gcc-toaru.sh`, when gcc is present), `/extras/toaruos-src`,
+   `tests/examples/*.c` (under `/extras/examples`), `/extras/gcc_hello`
+   (built on the host by `gcc-toaru.sh`, when gcc is present),
    `/extras/nuklear.h`, `/extras/compile_examples.sh`, `/extras/README.txt`,
 7. boots a **headless verification VM** and checks that `/extras/tcc_test`
-   runs, that tcc inside ToaruOS compiles and runs `/extras/tcc_hello.c` and
+   runs, that tcc inside ToaruOS compiles and runs
+   `/extras/examples/tcc_hello.c` and
    every example, that `/extras/gcc_hello` from the host gcc runs, and that
    mini-commander draws its panels (with the current
    item highlighted), runs its command line on Enter, keeps the output on the
@@ -93,7 +93,7 @@ be mounted and `/` stays clean for the desktop icons (`mc` is also installed as
 TinyCC:
 
 ```sh
-/extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
 /extras/compile_examples.sh        # compiles and runs every *.c in /extras
 ```
 
@@ -251,7 +251,7 @@ The same variables can be passed to `scripts/toaru-vm.sh start`.
 tiny/
 ├─ tests/build-toaru.sh      # one-click: download, build, run
 ├─ tests/bench-boot.sh     # ISO vs -kernel/-initrd boot timing
-├─ tests/examples/*.c      # sample programs (copied to /extras)
+├─ tests/examples/*.c      # sample programs (copied to /extras/examples)
 ├─ tests/gcc/hello.c       # program built by the host gcc (into /extras)
 ├─ user/                   # YOUR files — copied into /extras
 ├─ scripts/                # all helper scripts of the project
@@ -290,15 +290,12 @@ tiny/
 │   ├─ ramdisk.tgz         # repacked ramdisk for the ISO-less boot
 │   ├─ kernel.mb           # stock kernel with the multiboot VBE request cleared
 │   └─ work/               # FIFO, logs and pid files of the running VM
-├─ _output/                # build results worth keeping
-│   ├─ mc                  # mini-commander for ToaruOS
-│   ├─ ttyprobe            # termios / terminal-size diagnostics
-│   └─ src/                # pristine mc sources + applied patch (regenerated)
+│   └─ output/             # finished binaries: mc, nuklear-ide-toaru, src/ staging
 ├─ _tmp/                   # scratch binaries (safe to empty)
 └─ README.md
 ```
 
-`_import/`, `_build/` and `_output/` can be deleted at any time (the Nuklear
+`_import/` and `_build/` can be deleted at any time (the Nuklear
 IDE headers in `_import/nuklear-ide/` come back with one run of
 `nuklear-ide/fetch-nuklear.sh`); `user/` **cannot** — its
 contents are copied into `/extras` on every run (and
@@ -327,9 +324,8 @@ without them too. Without either tool the script only prints a warning.
 | Command | Effect |
 |---|---|
 | `rm -rf _build` | deletes downloads and images; the next run fetches and builds everything again |
-| `rm -rf _output` | deletes `mc`, `ttyprobe` and the staging tree; `build-toaru.sh` rebuilds them |
 | `./mc-toaru/build.sh mc` | rebuilds only mini-commander (after a change in `toaru/` or the patch) |
-| `./mc-toaru/build.sh clean` | deletes `_output` |
+| `./mc-toaru/build.sh clean` | deletes `_build/output` |
 | `rm -rf _tmp/*` | empties the scratch directory |
 
 After changing `mc-toaru/toaru/*.c` you must run `./mc-toaru/build.sh mc` —

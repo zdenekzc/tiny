@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build the Nuklear IDE for ToaruOS 2.3.2.
 #
-#   ./build.sh                        # -> _output/nuklear-ide-toaru
+#   ./build.sh                        # -> _build/output/nuklear-ide-toaru
 #   ./build.sh /path/to/nuklear-ide   # explicit output
 #
 # The IDE is a static ToaruOS executable: Toaru's libc and the Yutani/graphics
@@ -18,7 +18,7 @@ TOP=$(cd "$HERE/../.." && pwd)
 IDE_DIR=$(cd "$HERE/.." && pwd)
 SYS=${SYSROOT:-$TOP/_build/tcc-toaru/lib}
 TOARU_SRC=${TOARU_SRC:-$TOP/_build/toaruos-src}
-OUT=${1:-$TOP/_output/nuklear-ide-toaru}
+OUT=${1:-$TOP/_build/output/nuklear-ide-toaru}
 ELFPAD=$TOP/scripts/toaru-elfpad.py
 CC=${CC:-gcc}
 LD=${LD:-ld}

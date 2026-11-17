@@ -10,7 +10,8 @@
 #   3. downloads TinyCC and builds two things:
 #        - a cross compiler on the host (_build/tcc-toaru/bin/x86_64-toaru-tcc),
 #        - a tcc that runs INSIDE ToaruOS (_build/tcc-toaru/tcc-guest),
-#   4. downloads mini-commander and compiles it with the cross tcc (_output/mc),
+#   4. downloads mini-commander and compiles it with the cross tcc
+#      (_build/output/mc),
 #   5. downloads the Nuklear header (browsing only),
 #   6. builds the native Nuklear IDE for ToaruOS (Yutani + software renderer),
 #      builds NetSurf (netsurf-toaru/build.sh; reused when it already exists)
@@ -20,7 +21,7 @@
 #      clean so the desktop icons are not cluttered (mc itself is /bin/mc).
 #   7. starts a HEADLESS (no window) control VM and verifies:
 #        - /extras/tcc_test (program compiled by the cross tcc),
-#        - tcc inside ToaruOS compiles and runs /extras/tcc_hello.c,
+#        - tcc inside ToaruOS compiles and runs /extras/examples/tcc_hello.c,
 #        - every example in /extras compiles and runs,
 #        - /extras/gcc_hello (built by the HOST gcc, see gcc-toaru.sh) runs,
 #        - mini-commander starts, draws its panels with a highlighted current
@@ -36,7 +37,7 @@
 #
 # Inside the visible ToaruOS open the Terminal and run:
 #
-#   /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+#   tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
 #   mc /extras
 #
 # (When the VM is started by hand, pass the custom ISO:
@@ -66,7 +67,7 @@ TEST_BIN="${BUILD_DIR}/tcc-toaru/test"
 SYSROOT="${BUILD_DIR}/tcc-toaru/lib"
 MC_SRC="${BUILD_DIR}/minicmd/mini-commander"
 MC_IMPORT="${IMPORT_DIR}/mini-commander"
-MC_BIN="${REPO_ROOT}/_output/mc"
+MC_BIN="${REPO_ROOT}/_build/output/mc"
 NUKLEAR="${REPO_ROOT}/_import/nuklear-ide/nuklear.h"
 NETSURF_BUILD="${REPO_ROOT}/netsurf-toaru/build.sh"
 NETSURF_DL="${BUILD_DIR}/netsurf"
@@ -173,7 +174,7 @@ fi
 # directly on /; there is no shared disk and nothing is mounted.
 echo "== preparing the ramdisk payload ..."
 rm -rf "${PUSH}"
-mkdir -p "${PUSH}/tcc/bin" "${PUSH}/tcc/lib" "${PUSH}/toaruos-src"
+mkdir -p "${PUSH}/tcc/bin" "${PUSH}/tcc/lib" "${PUSH}/examples"
 
 # user files (the user/ directory in the project root) have precedence
 if [[ -d "${REPO_ROOT}/user" ]]; then
@@ -187,9 +188,9 @@ install -m 644 "${SYSROOT}/crt0.o" "${SYSROOT}/crti.o" "${SYSROOT}/crtn.o" \
                "${SYSROOT}/libc.a" "${SYSROOT}/libtcc1.a" "${PUSH}/tcc/lib/"
 cp -a "${SYSROOT}/include" "${PUSH}/tcc/include"
 
-# example source texts + the tcc_test source text
-cp "${REPO_ROOT}/tests/examples/"*.c "${PUSH}/"
-cp "${REPO_ROOT}/tcc/toaru/test.c" "${PUSH}/tcc_test.c"
+# example source texts + the tcc_test source text, all in /extras/examples
+cp "${REPO_ROOT}/tests/examples/"*.c "${PUSH}/examples/"
+cp "${REPO_ROOT}/tcc/toaru/test.c" "${PUSH}/examples/tcc_test.c"
 
 # A program built on the HOST by the host gcc — the route a developer would
 # use for their own C (gcc + GNU ld + toaru-elfpad.py, see gcc-toaru.sh).
@@ -259,9 +260,6 @@ GUEST_EOF
     fi
 fi
 
-# ToaruOS sources without .git, so they can be browsed in mc in the guest
-( cd "${TOARU_SRC}" && tar cf - --exclude=.git . ) \
-    | ( cd "${PUSH}/toaruos-src" && tar xf - )
 
 # script for compiling the examples directly in ToaruOS
 # ToaruOS's esh has no for loop and splits commands at ';', so the file list
@@ -269,24 +267,24 @@ fi
 {
     cat <<'GUEST_EOF'
 #!/bin/sh
-# Compiles and runs all *.c in /extras.  Output goes to /tmp so that
-# nothing is written to the ramdisk.
+# Compiles and runs all *.c in /extras/examples.  Output goes to /tmp so
+# that nothing is written to the ramdisk.
 #
-#   /extras/compile_examples.sh
+#   /extras/compile_examples.sh      (tcc is also /bin/tcc)
 #
-# All sources in /extras are plain C and TinyCC compiles and runs them;
-# tcc_test.c is the test program from tcc/toaru.
+# All sources in /extras/examples are plain C and TinyCC compiles and runs
+# them; tcc_test.c is the test program from tcc/toaru.
 if not stat -q /extras/tcc/bin/tcc then echo "tcc is missing from the ramdisk"
 if not stat -q /extras/tcc/bin/tcc then exit 1
 
 GUEST_EOF
-    for src in "${PUSH}"/*.c; do
+    for src in "${PUSH}"/examples/*.c; do
         name=$(basename "$src" .c)
-        printf 'echo "== /extras/%s.c"\n' "$name"
+        printf 'echo "== /extras/examples/%s.c"\n' "$name"
         printf 'if stat -q "/tmp/%s" then rm "/tmp/%s"\n' "$name" "$name"
-        printf '/extras/tcc/bin/tcc -o "/tmp/%s" "/extras/%s.c"\n' "$name" "$name"
+        printf '/bin/tcc -o "/tmp/%s" "/extras/examples/%s.c"\n' "$name" "$name"
         printf 'if stat -q "/tmp/%s" then "/tmp/%s"\n' "$name" "$name"
-        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /extras/%s.c"\n\n' "$name" "$name"
+        printf 'if not stat -q "/tmp/%s" then echo "   tcc failed on /extras/examples/%s.c"\n\n' "$name" "$name"
     done
 } > "${PUSH}/compile_examples.sh"
 chmod +x "${PUSH}/compile_examples.sh"
@@ -298,9 +296,9 @@ ToaruOS + TinyCC + mini-commander
 All files are part of the ramdisk under /extras — no disk needs to be
 mounted and / stays clean for the desktop icons.
 
-TinyCC inside ToaruOS:
+TinyCC inside ToaruOS (also available as /bin/tcc):
 
-    /extras/tcc/bin/tcc -o /tmp/hello /extras/tcc_hello.c ; /tmp/hello
+    tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
     /extras/compile_examples.sh
 
 mini-commander:
@@ -332,15 +330,22 @@ The QEMU user-mode network gives the guest DHCP and DNS, so http:// works;
 https:// does not, because ToaruOS has no TLS stack.
 
 /extras/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a,
-libtcc1.a), /extras/toaruos-src contains the sources of ToaruOS 2.3.2.
+libtcc1.a); /extras/examples holds the example sources.
 /extras/gcc_hello was built on the host by the host gcc (gcc-toaru.sh),
 not by TinyCC: same ToaruOS libc, different compiler.
 GUEST_EOF
 
-# a tiny directory with a predictable layout, used by the automatic mc
-# viewer/editor check (one Down arrow lands on README.txt)
-mkdir -p "${PUSH}/demo"
-cp "${PUSH}/README.txt" "${PUSH}/demo/README.txt"
+# README.txt sorts first in /extras/examples (strcmp order), so the automatic
+# mc viewer/editor check reaches it with a single Down arrow.
+cat > "${PUSH}/examples/README.txt" <<'GUEST_EOF'
+Example sources for TinyCC
+==========================
+
+Run them with:
+
+    tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
+    /extras/compile_examples.sh      (compiles and runs every *.c here)
+GUEST_EOF
 
 # Build the bootable ISO: every file from PUSH goes into the ramdisk, and the
 # patched mc is additionally installed as /bin/mc so it is on PATH.
@@ -351,8 +356,13 @@ BOOT_ISO="${BUILD_DIR}/custom.iso"
 # ------------------------------------- 7) automatic check in a headless VM
 demo() {
     local rc=0 text
+    # A leftover VM (e.g. from a previous run) would make "start" fail; the
+    # failure would otherwise hide behind "> /dev/null" and only show up as a
+    # 60 s boot timeout.
+    "${VM}" stop > /dev/null 2>&1 || true
     echo "== starting the control ToaruOS ..."
-    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" "${VM}" start > /dev/null
+    VISIBLE=0 HEADLESS=1 ISO="${BOOT_ISO}" "${VM}" start > /dev/null \
+        || { echo "  *** could not start the control VM"; return 1; }
     VM_TEST_STARTED=1
 
     local i
@@ -386,7 +396,7 @@ demo() {
     wait_for __T1__ || { echo "  *** /extras/tcc_test did not finish"; rc=1; return $rc; }
 
     # esh does not handle && (only ;), hence two commands in a row
-    "${VM}" send '/extras/tcc/bin/tcc -o /tmp/tcc_hello /extras/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
+    "${VM}" send 'tcc -o /tmp/tcc_hello /extras/examples/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
     wait_for __T2__ || { echo "  *** tcc in ToaruOS did not compile tcc_hello.c"; rc=1; return $rc; }
 
     # The same C library, but the program was compiled by the HOST gcc.
@@ -401,9 +411,9 @@ demo() {
     # mc exits with F10; we send the escape sequences directly (F9 = ESC[20~,
     # F10 = ESC[21~).  If the parser loses the CSI prefix, "20~"/"21~" ends up
     # on the terminal as text (that was a real bug), so check for both.
-    # Everything lives in /extras; /extras/demo has a predictable layout so the
-    # one Down arrow below always lands on README.txt.
-    local mc_cmd='/bin/mc /extras/demo'
+    # Everything lives in /extras; /extras/examples has a predictable layout
+    # (README.txt sorts first) so the one Down arrow below lands on README.txt.
+    local mc_cmd='/bin/mc /extras/examples'
     "${VM}" send "$mc_cmd"
     sleep 3
 
@@ -508,10 +518,10 @@ demo() {
     # text itself: the screen is updated cell by cell, so a space that is
     # already on the screen is not sent to the terminal again and the log would
     # show "TinyCC+ mini-commander".
-    if ! grep -aqE '/demo/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' <<< "$text"; then
+    if ! grep -aqE '/examples/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' <<< "$text"; then
         echo "  *** the F3 viewer did not open README.txt"; rc=1
     fi
-    if ! grep -aq -- '-- /extras/demo --' <<< "$text"; then
+    if ! grep -aq -- '-- /extras/examples --' <<< "$text"; then
         echo "  *** mini-commander did not draw the file panels"; rc=1
     fi
     if ! grep -aq 'U+0054' <<< "$text"; then
