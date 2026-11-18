@@ -39,6 +39,9 @@ PREFIX=${NETSURF_PREFIX:-$TOP/_build/netsurf-prefix}
 SYS=${TOARU_SYSROOT:-$TOP/_build/tcc-toaru/lib}
 TOARU_SRC=${TOARU_SRC:-$TOP/_build/toaruos-src}
 TOOL=$HERE/toolchain
+# The compiler driver: gcc-toaru.sh for x86_64 (host gcc), gcc-toaru-a64.sh
+# for an aarch64 build (aarch64-unknown-toaru from build-toaruos.sh -a native).
+TOOLCC=${NETSURF_TOOLCC:-$TOOL/gcc-toaru.sh}
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 4)}
 
 NS_VER=3.11
@@ -176,7 +179,7 @@ if [[ ${SKIP_DEPS:-0} != 1 ]]; then
         echo "== building $(basename "$dir")"
         make -C "$dir" -j"$JOBS" \
             HOST=x86_64-pc-toaru BUILD=x86_64-linux-gnu \
-            CC="$TOOL/gcc-toaru.sh" AR="$TOOL/ar-toaru.sh" \
+            CC="$TOOLCC" AR="$TOOL/ar-toaru.sh" \
             NSSHARED="$DEPS/buildsystem-1.10" PREFIX="$PREFIX" \
             install
     }
@@ -192,7 +195,7 @@ if [[ ${SKIP_DEPS:-0} != 1 ]]; then
     if [[ ! -f $PREFIX/lib/libz.a ]]; then
         mkdir -p "$DEPS/zlib-1.3.1/build-toaru"
         (cd "$DEPS/zlib-1.3.1/build-toaru" &&
-            CC="$TOOL/gcc-toaru.sh" AR="$TOOL/ar-toaru.sh" \
+            CC="$TOOLCC" AR="$TOOL/ar-toaru.sh" \
                 ../configure --prefix="$PREFIX" >/dev/null &&
             make -j"$JOBS" >/dev/null && make install >/dev/null)
     fi
@@ -206,7 +209,7 @@ if [[ ${SKIP_DEPS:-0} != 1 ]]; then
         rm -rf "$DEPS/curl-8.4.0/build-toaru"
         mkdir -p "$DEPS/curl-8.4.0/build-toaru"
         (cd "$DEPS/curl-8.4.0/build-toaru" &&
-            CC="$TOOL/gcc-toaru.sh" AR="$TOOL/ar-toaru.sh" RANLIB=ranlib \
+            CC="$TOOLCC" AR="$TOOL/ar-toaru.sh" RANLIB=ranlib \
             ../configure \
                 --host=x86_64-unknown-linux-gnu --build=x86_64-linux-gnu \
                 --prefix="$PREFIX" \
@@ -249,7 +252,7 @@ TOARU_LIBS="auth button confreader decorations graphics hashmap icon_cache
 for src in $TOARU_LIBS; do
     # toaru/spinlock.h calls syscall_yield() without a declaration; newer GCC
     # rejects that by default, so downgrade it to a warning.
-    "$TOOL/gcc-toaru.sh" -c -std=gnu11 -DNO_SSE \
+    "$TOOLCC" -c -std=gnu11 -DNO_SSE \
         -Wno-error=implicit-function-declaration \
         "$TOARU_SRC/lib/$src.c" -o "$OBJ/$src.o"
 done
@@ -266,7 +269,7 @@ done
 echo "== building NetSurf"
 make -C "$SRC" -j"$JOBS" \
     TARGET=toaru HOST=x86_64-pc-toaru BUILD=x86_64-linux-gnu \
-    CC="$TOOL/gcc-toaru.sh" AR="$TOOL/ar-toaru.sh" \
+    CC="$TOOLCC" AR="$TOOL/ar-toaru.sh" \
     PREFIX="$PREFIX" PKG_CONFIG=pkg-config
 
 echo "== done: $SRC/netsurf"

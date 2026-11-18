@@ -119,6 +119,15 @@ done
 "$TCC" -B"$LIB" -c "$DIR/tcc/toaru/aarch64-atomic-helpers.S" \
     -o "$O/aarch64-atomic-helpers.o" || die "tcc -c aarch64-atomic-helpers.S"
 "$TCC" -B"$LIB" -ar rcs "$LIB/libtcc1.a" "$O"/*.o || die "ar libtcc1.a"
+# GNU ld links (gcc-based builds) do not pull libtcc1.a: the libatomic helper
+# the static aarch64 libc.a needs and the libm symbols gcc's aarch64 backend
+# calls out to (floor — the x86 gcc inlines it) go into one shim archive so
+# those links can add -la64lite.
+"$TCC" -B"$LIB" -c "$DIR/tcc/toaru/aarch64-math-lite.c" \
+    -o "$O/aarch64-math-lite.o" || die "tcc -c aarch64-math-lite.c"
+"$TCC" -B"$LIB" -ar rcs "$LIB/liba64lite.a" \
+    "$O/aarch64-atomic-helpers.o" "$O/aarch64-math-lite.o" \
+    || die "ar liba64lite.a"
 echo "libtcc1.a: $(stat -c%s "$LIB/libtcc1.a") B"
 
 # ------------------------------------------------------- 5) tcc in the guest

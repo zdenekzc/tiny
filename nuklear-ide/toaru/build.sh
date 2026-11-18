@@ -18,11 +18,15 @@ TOP=$(cd "$HERE/../.." && pwd)
 IDE_DIR=$(cd "$HERE/.." && pwd)
 SYS=${SYSROOT:-$TOP/_build/tcc-toaru/lib}
 TOARU_SRC=${TOARU_SRC:-$TOP/_build/toaruos-src}
-OUT=${1:-$TOP/_build/output/nuklear-ide-toaru}
+OUT=${1:-${OUT:-$TOP/_build/output/nuklear-ide-toaru}}
 ELFPAD=$TOP/scripts/toaru-elfpad.py
 CC=${CC:-gcc}
 LD=${LD:-ld}
 AR=${AR:-ar}
+# x86_64-specific defaults; an aarch64 build overrides these three
+ARCH_FLAGS=${ARCH_FLAGS:--mno-red-zone -DNO_SSE}
+LINK_EMU=${LINK_EMU:--m elf_x86_64}
+LINK_BASE=${LINK_BASE:-0x3F000000}
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -60,7 +64,7 @@ fi
 # (e.g. struct MenuEntry_Normal { struct MenuEntry; ... }).
 COMMON="-O2 -g -std=gnu11 -ffreestanding -nostdinc -fplan9-extensions
         -isystem $SYS/include -I$IDE_DIR -isystem $TOARU_SRC
-        -fno-pie -fno-pic -fno-stack-protector -mno-red-zone -DNO_SSE
+        -fno-pie -fno-pic -fno-stack-protector $ARCH_FLAGS
         -include $HERE/compat.h -Wno-error=implicit-function-declaration"
 
 echo "== compiling the IDE"
@@ -85,12 +89,12 @@ echo "== linking"
 # object out and place it before the constructors, as the NetSurf build does.
 "$AR" p "$SYS/libc.a" main.o > "$WORK/libc-main.o"
 # shellcheck disable=SC2086
-"$LD" -m elf_x86_64 -static -Ttext-segment=0x3F000000 \
+"$LD" $LINK_EMU -static -Ttext-segment=$LINK_BASE \
     -o "$WORK/nuklear-ide" \
     "$SYS/crt0.o" "$SYS/crti.o" "$WORK/libc-main.o" \
     "$WORK/main.o" \
     $(for src in $TOARU_LIBS; do printf '%s ' "$WORK/$src.o"; done) \
-    "$SYS/crtn.o" -L"$SYS" -lc
+    "$SYS/crtn.o" -L"$SYS" -lc ${EXTRA_LINK:-}
 
 echo "== padding ELF segments"
 mkdir -p "$(dirname "$OUT")"

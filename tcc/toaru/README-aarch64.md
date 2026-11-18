@@ -227,3 +227,19 @@ Poznámky pro budoucí práci:
   kompilátor.
 - Dynamické linkování (ld.so, `libc.so`) tcc nepodporuje a nepodporuje ho
   ani x86 varianta; statické ET_EXEC je na obou architekturách jediná cesta.
+- **Nuklear IDE a NetSurf pro aarch64** se staví stejnými skripty, jen s
+  toolchainem z lokálního buildu (`_build/toaruos-native-aarch64/gcc_local`,
+  aarch64-unknown-toaru gcc 10.3): IDE přes `nuklear-ide/toaru/build.sh` s
+  `CC/LD/AR/SYSROOT/TOARU_SRC/ARCH_FLAGS/LINK_EMU/LINK_BASE/EXTRA_LINK` (viz
+  `tests/run-arm64.sh`), NetSurf přes `netsurf-toaru/build.sh` s
+  `NETSURF_TOOLCC=netsurf-toaru/toolchain/gcc-toaru-a64.sh` a samostatnými
+  adresáři (`netsurf-prefix-a64`, `netsurf-a64`). GNU ld na aarch64 netáhne
+  libtcc1 ani libgcc s našimi shims — proto `-la64lite`
+  (`__aarch64_swp4_acq` + `floor`, který x86 gcc inlinuje a aarch64 volá).
+  Emulace linkeru je `elf64toaru_aarch64`, báze `0x400000`.
+- **Headless `compositor &` na aarch64 segfaultuje** (z getty na sériové
+  lince; s i bez `ramfb vid=preset`, s release i lokálním kernelem — měřeno
+  2026-11-18). Grafická session (`start=live-session`) kompozitor startuje
+  normálně, takže IDE i NetSurf se v ARM64 guestu testují ve viditelné VM
+  z Terminálu (`/extras/nuklear-ide`,
+  `/extras/netsurf/netsurf file:///extras/netsurf-test.html`).

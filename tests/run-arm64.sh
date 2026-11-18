@@ -126,6 +126,21 @@ if [[ ! -x "${TCC_A64}/tcc-guest-aarch64" || ! -f "${TCC_A64}/lib/libtcc1.a" ]];
     "${REPO_ROOT}/scripts/mktcc-aarch64.sh" || die "mktcc-aarch64.sh"
 fi
 
+# Nuklear IDE: compiled by the aarch64-unknown-toaru gcc from the local build
+# tree (see tcc/toaru/README-aarch64.md); the IDE is a static Yutani program.
+NUKLEAR_IDE_A64="${BUILD_DIR}/output/nuklear-ide-toaru-aarch64"
+if [[ ! -x "${NUKLEAR_IDE_A64}" ]]; then
+    echo "== building Nuklear IDE for aarch64 ToaruOS ..."
+    TC="${BUILD_DIR}/toaruos-native-aarch64/gcc_local"
+    PATH="${TC}/bin:$PATH" \
+    LD_LIBRARY_PATH="${TC}/x86_64-pc-linux-gnu/aarch64-unknown-toaru/lib:${TC}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    SYSROOT="${TCC_A64}/lib" TOARU_SRC="${SRC}" \
+    CC=aarch64-unknown-toaru-gcc LD=aarch64-unknown-toaru-ld AR=aarch64-unknown-toaru-ar \
+    ARCH_FLAGS="-fno-stack-protector" LINK_EMU="-m elf64toaru_aarch64" LINK_BASE=0x400000 \
+    EXTRA_LINK="-la64lite" OUT="${NUKLEAR_IDE_A64}" \
+        "${REPO_ROOT}/nuklear-ide/toaru/build.sh" || die "nuklear-ide aarch64"
+fi
+
 # mini-commander: the mc-toaru port (ncurses shim + compat) is plain C, so the
 # aarch64 build is the same recipe with our aarch64 cross tcc.
 if [[ ! -x "${MC_A64}/mc" ]]; then
@@ -134,17 +149,41 @@ if [[ ! -x "${MC_A64}/mc" ]]; then
         OUT="${MC_A64}" "${REPO_ROOT}/mc-toaru/build.sh" mc || die "mc aarch64"
 fi
 
-if [[ ! -s "${RAMDISK_A64}" ||
-      -n $(find "${SRC}/ramdisk.igz" "${TCC_A64}/tcc-guest-aarch64" \
-               "${MC_A64}/mc" -newer "${RAMDISK_A64}" 2>/dev/null | head -1) ]]; then
-    echo "== preparing the ramdisk payload (tcc + examples) ..."
+if [[ ! -x "${PUSH_A64}/tcc/bin/tcc" || ! -x "${PUSH_A64}/mc" ||
+      ! -x "${PUSH_A64}/nuklear-ide" || ! -f "${PUSH_A64}/netsurf-test.html" ]]; then
+    echo "== preparing the ramdisk payload (tcc + mc + IDE + NetSurf) ..."
     rm -rf "${PUSH_A64}"
-    W=$(mktemp -d "${BUILD_DIR}/a64payload.XXXXXX")
-    gzip -dc "${SRC}/ramdisk.igz" | tar -xf - -C "${W}"
+    W="${PUSH_A64}"
+    mkdir -p "${W}"
     mkdir -p "${W}/extras/tcc/bin" "${W}/extras/tcc/lib" "${W}/extras/examples"
+    mkdir -p "${W}/bin"     # the payload symlinks live here (push-a64 is a
+                            # plain payload dir, not an extracted ramdisk)
     install -m 755 "${TCC_A64}/tcc-guest-aarch64" "${W}/extras/tcc/bin/tcc"
     install -m 755 "${MC_A64}/mc" "${W}/extras/mc"
+    install -m 755 "${NUKLEAR_IDE_A64}" "${W}/extras/nuklear-ide"
     ln -s /extras/mc "${W}/bin/mc"
+    # NetSurf for aarch64 (built by netsurf-toaru/build.sh with the a64
+    # toolchain driver); reused when present, payload skips it otherwise.
+    NS_A64="${BUILD_DIR}/netsurf-a64/netsurf-3.11"
+    if [[ -x "${NS_A64}/netsurf" ]]; then
+        mkdir -p "${W}/extras/netsurf"
+        install -m 755 "${NS_A64}/netsurf" "${W}/extras/netsurf/netsurf"
+        cp -a "${NS_A64}/resources/." "${W}/extras/netsurf/"
+        install -m 644 "${NS_A64}/frontends/toaru/res/en/Messages" \
+            "${W}/extras/netsurf/Messages"
+        cat > "${W}/extras/netsurf-test.html" <<'GUEST_EOF'
+<!DOCTYPE html>
+<html><head><title>NetSurf on ToaruOS</title></head>
+<body style="background:#ffffff;color:#102040;font-family:sans-serif">
+<h1>Hello from NetSurf!</h1>
+<p>This page is rendered by NetSurf 3.11 as a static ToaruOS executable.</p>
+<ul><li>HTML parsing</li><li>CSS layout</li><li>Yutani window</ul>
+<p style="color:#a00000">If you can read this, the port works.</p>
+</body></html>
+GUEST_EOF
+    else
+        echo "note: aarch64 NetSurf not built — /extras/netsurf will be missing"
+    fi
     install -m 644 "${TCC_A64}/lib/crt0.o" "${TCC_A64}/lib/crti.o" \
                    "${TCC_A64}/lib/crtn.o" "${TCC_A64}/lib/libc.a" \
                    "${TCC_A64}/lib/libtcc1.a" "${W}/extras/tcc/lib/"
@@ -195,11 +234,22 @@ GUEST_EOF
     # files would otherwise carry the Linux user's uid (measured 2026-11-18:
     # the whole tree including home/local/ came out as the host uid, so the
     # local user could not enter its own home).  Same lesson as mkiso.sh.
-    ( cd "${W}" && find . -mindepth 1 -maxdepth 1 -printf '%P\0' |
-        tar --null --owner=1000 --group=1000 -cf - -T - ) \
-        | gzip -9 -n > "${RAMDISK_A64}"
-    rm -rf "${W}"
 fi
+
+# Pack the payload onto the ramdisk base.  The base is the RELEASE userland:
+# the local build's ramdisk is not trustworthy (the native build reported an
+# ignored libgcc_s.so error and its compositor segfaulted, measured
+# 2026-11-18), while the release userland runs fine with the patched kernel.
+BASE_RAMDISK="${REL_DIR}/ramdisk.igz"
+[[ -f "${BASE_RAMDISK}" ]] || BASE_RAMDISK="${SRC}/ramdisk.igz"
+echo "== packing the payload onto $(basename "${BASE_RAMDISK}") ..."
+W=$(mktemp -d "${BUILD_DIR}/a64pack.XXXXXX")
+gzip -dc "${BASE_RAMDISK}" | tar -xf - -C "${W}"
+cp -a "${PUSH_A64}/." "${W}/"
+( cd "${W}" && find . -mindepth 1 -maxdepth 1 -printf '%P\0' |
+    tar --null --owner=1000 --group=1000 -cf - -T - ) \
+    | gzip -9 -n > "${RAMDISK_A64}"
+rm -rf "${W}"
 echo "== ramdisk: ${RAMDISK_A64}"
 
 # ------------------------------------------------------- 2) QEMU helpers
