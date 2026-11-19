@@ -11,6 +11,7 @@ _tmp/
 *.iso
 .DS_Store
 nuklear-ide/nuklear-ide.bin
+tiny-ide/tiny-ide.bin
 
 
 # python bytecode

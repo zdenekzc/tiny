@@ -14,6 +14,9 @@ individual projects keep their own upstreams:
 - **[Nuklear IDE](nuklear-ide/)** — a small immediate-mode GUI IDE built on
   [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear) for Linux and
   ToaruOS.
+- **[Tiny IDE](tiny-ide/)** — a small ncurses IDE for Linux with the same
+  project-tree/editor/build core and a mini-commander-style interface; a
+  ToaruOS port is prepared as the next step.
 
 One command downloads, builds and runs **ToaruOS 2.3.2** in QEMU with all of
 the above.
@@ -192,6 +195,25 @@ on demand with `nuklear-ide/fetch-nuklear.sh`, which downloads them from a
 pinned upstream commit. See
 `nuklear-ide/README.md` for shortcuts, architecture and porting notes.
 
+## Tiny IDE (Linux, ncurses)
+
+`tiny-ide/` is the terminal counterpart of Nuklear IDE: project tree, tabs,
+UTF-8 editing with C/C++ highlighting, undo/redo, asynchronous TinyCC build/run,
+function-key footer, mouse support and compiler diagnostics that jump to the
+reported line. See [tiny-ide/README.md](tiny-ide/README.md) for all shortcuts
+and limitations.
+
+```sh
+make -C tiny-ide
+make -C tiny-ide tcc          # system tcc or _build/host-tcc/tcc
+make -C tiny-ide run          # demo; F5 builds and runs it
+make -C tiny-ide check        # editor unit tests + pseudo-terminal integration
+```
+
+The Linux version is complete. It is deliberately not installed into the
+ToaruOS ramdisk yet; the shared curses subset and platform-independent editor
+are the basis for the next ToaruOS port.
+
 ## Controlling the VM
 
 ```bash
@@ -278,6 +300,11 @@ tiny/
 │   ├─ toaru/build.sh      # static ToaruOS build (build-toaru installs it)
 │   ├─ demo/hello.c        # F5 demo program
 │   └─ fetch-nuklear.sh    # re-download the headers from upstream
+├─ tiny-ide/               # ncurses IDE for Linux (ToaruOS port comes next)
+│   ├─ editor.c            # UTF-8 editor model and delta undo/redo
+│   ├─ app.c / runner.c    # files/tree/tabs and async compiler/program
+│   ├─ ui.c / dialogs.c    # mini-commander-style ncurses interface
+│   └─ tests/              # model tests and pseudo-terminal smoke tests
 ├─ toaruos-ext2-sparse-bug.md  # ext2 sparse-file bug report (upstream is archived)
 ├─ _import/                # downloads: ISO, sources, clones, tarballs (safe to delete)
 │   ├─ download/           # image.iso, toaruos-src, tinycc, netsurf tarballs
