@@ -154,6 +154,7 @@ struct _SCREEN { int dummy; };
 #define KEY_SUNDO 0607
 #define KEY_SUSPEND 0610
 #define KEY_UNDO 0611
+#define KEY_SLEFT 0612
 #define KEY_MOUSE 0631
 #define KEY_RESIZE 0632
 #define KEY_MAX 0777

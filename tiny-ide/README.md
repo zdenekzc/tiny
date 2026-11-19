@@ -186,13 +186,35 @@ tiny-ide/
 Mezi jednotlivými částmi nejsou grafické knihovny, threads ani externí UI
 runtime. Linuxová verze používá pouze `ncursesw` a POSIX.
 
-## Pozdější ToaruOS port
+## ToaruOS port
 
-Zatím není `make toaru` a Tiny IDE se ještě neinstaluje do ramdisku. UI používá
-jen malou podmnožinu curses, kterou už implementuje `mc-toaru/toaru/curses.c`;
-textový model o curses nic neví. Port proto bude především build skript se
-sysrootem z `scripts/mktcc.sh`, POSIX kompatibilita procesů/filesystemu a cesty
-k hostitelskému/guest TinyCC. Nebude potřeba přepisovat editor ani rozložení UI.
+Port pro ToaruOS (x86_64) staví `build-toaru.sh` se křížovým TinyCC ze
+`scripts/mktcc.sh`. Zdrojové soubory Linuxu se používají nezměněné; rozdíl je
+jen v kompatibilní vrstvě:
+
+- `toaru/wctype.h` a `toaru/compat.c` — UTF-8 konverze a klasifikace
+  (`mbrtowc`, `wcrtomb`, `mbstate_t`, `iswprint`, …), které libc ToaruOS
+  nemá, a no-op `fsync`;
+- `../mc-toaru/toaru/curses.c` — sdílený ncurses shim, na kterém běží
+  `mini-commander`; Tiny IDE ho používá beze změny (jen s doplněným
+  `KEY_SLEFT`).
+
+Build:
+
+```sh
+./scripts/mktcc.sh          # křížový tcc + sysroot z release ISO (jednou)
+tiny-ide/build-toaru.sh     # => _build/output/tiny-ide (ELF pro ToaruOS)
+```
+
+Do ramdisku obrazu se Tiny IDE dostává přes `tests/build-toaru.sh` jako
+`/extras/tiny-ide` s demem v `/extras/tiny-ide-demo`. Headless kontrola
+spustí IDE, klávesou F5 nechá přeložit a spustit demo hostovaným TinyCC
+(„sum of squares 1..10 = 385") a F10 ho ukončí.
+
+```sh
+./tests/build-toaru.sh      # kompletní obraz; VM zůstane běžet
+# v terminálu ToaruOS: /extras/tiny-ide /extras/tiny-ide-demo
+```
 
 ## Omezení
 

@@ -319,6 +319,9 @@ index 5229f3e..6be18b0 100644
  #define ELF_PAGE_SIZE  0x1000
  
  #define PCRELATIVE_DLLPLT 1
+diff --git a/arm64-link.c b/arm64-link.c
+--- a/arm64-link.c
++++ b/arm64-link.c
 @@ -35,6 +35,7 @@ ST_FUNC int code_reloc (int reloc_type)
          case R_AARCH64_MOVW_UABS_G2_NC:
          case R_AARCH64_MOVW_UABS_G3:

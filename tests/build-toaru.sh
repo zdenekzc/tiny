@@ -16,9 +16,10 @@
 #   6. builds the native Nuklear IDE for ToaruOS (Yutani + software renderer),
 #      builds NetSurf (netsurf-toaru/build.sh; reused when it already exists)
 #      and makes _build/custom.iso via mc-toaru/mkiso.sh: ALL files (mc, tcc,
-#      examples, sources, the IDE, NetSurf, ...) are placed INSIDE the ramdisk
-#      (ramdisk.igz) under /extras — no shared disk, no mounting, and / stays
-#      clean so the desktop icons are not cluttered (mc itself is /bin/mc).
+#      examples, sources, the IDE, Tiny IDE, NetSurf, ...) are placed INSIDE
+#      the ramdisk (ramdisk.igz) under /extras — no shared disk, no mounting,
+#      and / stays clean so the desktop icons are not cluttered (mc itself is
+#      /bin/mc).
 #   7. starts a HEADLESS (no window) control VM and verifies:
 #        - /extras/tcc_test (program compiled by the cross tcc),
 #        - tcc inside ToaruOS compiles and runs /extras/examples/tcc_hello.c,
@@ -27,6 +28,8 @@
 #        - mini-commander starts, draws its panels with a highlighted current
 #          item, executes its command line on Enter and quits with F10 or a
 #          mouse click on the F10 footer,
+#        - tiny-ide draws its UI, F5 builds and runs the demo with the guest
+#          tcc (the demo prints 385) and F10 returns to the shell,
 #        - NetSurf starts under the compositor, parses and lays out
 #          /extras/netsurf-test.html and survives the first redraw,
 #   8. starts a VISIBLE ToaruOS in QEMU:
@@ -226,6 +229,20 @@ else
     echo "note: Nuklear IDE for ToaruOS not built (missing sysroot or ToaruOS sources)"
 fi
 
+# Tiny IDE for ToaruOS (the ncurses IDE over the shared curses shim).  The
+# Linux sources are used unchanged; tiny-ide/toaru/ only adds the UTF-8
+# multibyte helpers the guest libc is missing.
+TINY_IDE_BUILD="${REPO_ROOT}/tiny-ide/build-toaru.sh"
+if [[ -x "${TINY_IDE_BUILD}" && -f "${SYSROOT}/libc.a" ]]; then
+    echo "== building Tiny IDE for ToaruOS ..."
+    "${TINY_IDE_BUILD}" || die "Tiny IDE for ToaruOS"
+    install -m 755 "${BUILD_DIR}/output/tiny-ide" "${PUSH}/tiny-ide"
+    mkdir -p "${PUSH}/tiny-ide-demo"
+    cp "${REPO_ROOT}/tiny-ide/demo/hello.c" "${PUSH}/tiny-ide-demo/hello.c"
+else
+    echo "note: Tiny IDE for ToaruOS not built (missing sysroot)"
+fi
+
 # NetSurf for ToaruOS (static Yutani browser).  The build cross-compiles
 # NetSurf and its support libraries and is expensive, so reuse an existing
 # binary; delete it (or run netsurf-toaru/build.sh) to force a rebuild.
@@ -312,6 +329,13 @@ Nuklear IDE for ToaruOS (Yutani window, static binary):
 The IDE starts with a writable demo in /tmp/nuklear-ide-demo; F5 compiles
 and runs it with /extras/tcc.  Use File > Open or pass another directory,
 for example: /extras/nuklear-ide /extras
+
+Tiny IDE for ToaruOS (ncurses terminal IDE over the shared curses shim):
+
+    /extras/tiny-ide /extras/tiny-ide-demo
+
+F5 compiles demo/hello.c with /bin/tcc (= /extras/tcc/bin/tcc) and runs it;
+the demo prints squares 1..10 and the sum 385.  F10 quits.
 
 NetSurf (Yutani window, static binary; file:// and plain http:// pages):
 
@@ -461,7 +485,7 @@ demo() {
     "${VM}" send 'echo __MC_QUIT__'
     wait_for __MC_QUIT__ || { echo "  *** mini-commander did not exit on F10"; rc=1; return $rc; }
     local t
-    t=$("${VM}" log 100000 2>/dev/null || true)
+    t=$("${VM}" log 400000 2>/dev/null || true)
     if ! at_shell __MC_QUIT__ <<< "$t"; then
         echo "  *** F10 did not return mini-commander to the shell"; rc=1; return $rc
     fi
@@ -479,7 +503,7 @@ demo() {
         sleep 1
     done
 
-    text=$("${VM}" log 100000 2>/dev/null || true)
+    text=$("${VM}" log 400000 2>/dev/null || true)
     if ! at_shell __MC_MOUSE__ <<< "$text"; then
         echo "  *** mouse click on the F10 footer did not quit mini-commander"; rc=1
         send_raw "$(printf '\033[21~')"   # do not leave mc running
@@ -509,7 +533,9 @@ demo() {
     if [[ ${ok_count:-0} -lt 6 ]]; then
         echo "  *** only ${ok_count:-0} of the 6 examples printed O.K."; rc=1
     fi
-    btree_out=$(sed -n '/^== \/extras\/btree\.c$/,/^== \/extras\/heapsort\.c$/p' <<< "$text")
+    # The markers are "echo"ed by compile_examples.sh as
+    # "== /extras/examples/<name>.c"; match them without the directory part.
+    btree_out=$(sed -n '/^== .*btree\.c$/,/^== .*heapsort\.c$/p' <<< "$text")
     if ! grep -aqx '800' <<< "$btree_out"; then
         echo "  *** btree did not print its last key (800)"; rc=1
     fi
@@ -524,7 +550,12 @@ demo() {
     if ! grep -aq -- '-- /extras/examples --' <<< "$text"; then
         echo "  *** mini-commander did not draw the file panels"; rc=1
     fi
-    if ! grep -aq 'U+0054' <<< "$text"; then
+    # The editor status line "L:[  1+  0   1/  8] *(  0/207b)" proves the F4
+    # editor opened README.txt.  Do not grep for "U+0054": the curses shim
+    # only sends cells that changed against the previous screen, so parts of
+    # the status line can be missing from the serial log (as can spaces
+    # anywhere else, e.g. "compilesandrunsevery").
+    if ! grep -aq 'L:\[' <<< "$text"; then
         echo "  *** the F4 editor did not open README.txt"; rc=1
     fi
     if grep -aq 'Segmentation fault' <<< "$text"; then
@@ -542,6 +573,45 @@ demo() {
     # The F9 hint is printed with a blue background (SGR 0;97;44).
     if ! grep -aqF $'\033[0;97;44m [F9] return to mini-commander' "${BUILD_DIR}/work/out.log" 2>/dev/null; then
         echo "  *** the F9 hint does not have the blue background"; rc=1
+    fi
+
+    # Tiny IDE: draws the blue ncurses UI over the shared shim, builds and
+    # runs the demo with the guest tcc (F5) and quits with F10.  The IDE gets
+    # a copy of the demo in /tmp, because /extras (ramdisk) is read-only;
+    # the FILE argument opens the demo in a tab (a directory would leave
+    # "No file open" and F5 would have nothing to build).
+    if [[ -x "${PUSH}/tiny-ide" ]]; then
+        "${VM}" send 'mkdir -p /tmp/tiny-ide-demo'
+        "${VM}" send 'cp /extras/tiny-ide-demo/hello.c /tmp/tiny-ide-demo'
+        "${VM}" send '/extras/tiny-ide /tmp/tiny-ide-demo/hello.c'
+        local ti_ready=0 ti
+        for ti in $(seq 1 20); do
+            "${VM}" log 4000 2>/dev/null | grep -aq 'EXPLORER' && { ti_ready=1; break; }
+            sleep 1
+        done
+        if [[ ${ti_ready} != 1 ]]; then
+            echo "  *** tiny-ide did not draw its UI"; rc=1
+        else
+            send_raw "$(printf '\033[15~')"   # F5 - save, build + run
+            local ti_done=0
+            for ti in $(seq 1 90); do
+                # The output pane is drawn cell by cell, so spaces can be
+                # missing from the serial log; the sum 385 is unique enough.
+                "${VM}" log 20000 2>/dev/null | grep -aq '385' && { ti_done=1; break; }
+                sleep 1
+            done
+            if [[ ${ti_done} != 1 ]]; then
+                echo "  *** tiny-ide F5 did not build and run the demo (385)"; rc=1
+            fi
+            send_raw "$(printf '\033[21~')"   # F10 - quit
+            sleep 1
+        fi
+        "${VM}" send 'echo __TI_QUIT__'
+        wait_for __TI_QUIT__ || { echo "  *** tiny-ide did not exit on F10"; rc=1; return $rc; }
+        text=$("${VM}" log 400000 2>/dev/null || true)
+        if ! at_shell __TI_QUIT__ <<< "$text"; then
+            echo "  *** tiny-ide did not return to the shell"; rc=1; return $rc
+        fi
     fi
 
     # NetSurf: start the compositor (the serial getty has no graphical
@@ -596,7 +666,7 @@ demo() {
     if [[ $rc == 0 ]]; then
         local extra=
         [[ -f "${GCC_TEST}" ]] && extra=", the program built by the host gcc"
-        echo "== check OK: tcc_test, tcc inside ToaruOS, all examples${extra} and mini-commander work"
+        echo "== check OK: tcc_test, tcc inside ToaruOS, all examples${extra}, mini-commander and tiny-ide work"
     else
         echo "== check FOUND A PROBLEM (see above)"
     fi

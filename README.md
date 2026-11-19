@@ -15,8 +15,8 @@ individual projects keep their own upstreams:
   [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear) for Linux and
   ToaruOS.
 - **[Tiny IDE](tiny-ide/)** — a small ncurses IDE for Linux with the same
-  project-tree/editor/build core and a mini-commander-style interface; a
-  ToaruOS port is prepared as the next step.
+  project-tree/editor/build core and a mini-commander-style interface, ported
+  to ToaruOS over the shared curses shim.
 
 One command downloads, builds and runs **ToaruOS 2.3.2** in QEMU with all of
 the above.
@@ -210,9 +210,11 @@ make -C tiny-ide run          # demo; F5 builds and runs it
 make -C tiny-ide check        # editor unit tests + pseudo-terminal integration
 ```
 
-The Linux version is complete. It is deliberately not installed into the
-ToaruOS ramdisk yet; the shared curses subset and platform-independent editor
-are the basis for the next ToaruOS port.
+The Linux version is complete. For ToaruOS, `tiny-ide/build-toaru.sh` builds
+a static binary with the cross TinyCC and the shared `mc-toaru` curses shim;
+`tests/build-toaru.sh` installs it into the ramdisk as `/extras/tiny-ide`
+(with the demo in `/extras/tiny-ide-demo`) and the headless check drives it:
+F5 builds and runs the demo with the guest TinyCC, F10 quits.
 
 ## Controlling the VM
 
@@ -300,10 +302,11 @@ tiny/
 │   ├─ toaru/build.sh      # static ToaruOS build (build-toaru installs it)
 │   ├─ demo/hello.c        # F5 demo program
 │   └─ fetch-nuklear.sh    # re-download the headers from upstream
-├─ tiny-ide/               # ncurses IDE for Linux (ToaruOS port comes next)
+├─ tiny-ide/               # ncurses IDE for Linux and ToaruOS
 │   ├─ editor.c            # UTF-8 editor model and delta undo/redo
 │   ├─ app.c / runner.c    # files/tree/tabs and async compiler/program
 │   ├─ ui.c / dialogs.c    # mini-commander-style ncurses interface
+│   ├─ toaru/ + build-toaru.sh   # guest compat layer and cross build
 │   └─ tests/              # model tests and pseudo-terminal smoke tests
 ├─ toaruos-ext2-sparse-bug.md  # ext2 sparse-file bug report (upstream is archived)
 ├─ _import/                # downloads: ISO, sources, clones, tarballs (safe to delete)
