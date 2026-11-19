@@ -92,6 +92,10 @@ ln -s /extras/mc "$WORK/ramdisk/bin/mc"
 echo "== linking tcc as /bin/tcc"
 ln -s /extras/tcc/bin/tcc "$WORK/ramdisk/bin/tcc"
 
+# tiny-ide on PATH: same trick as mc (the payload binary stays in /extras).
+echo "== linking tiny-ide as /bin/tiny-ide"
+ln -s /extras/tiny-ide "$WORK/ramdisk/bin/tiny-ide"
+
 if [[ -d "$SRC_EXTRA" ]]; then
     echo "== copying payload from $SRC_EXTRA into /$EXTRA_DIR"
     mkdir -p "$WORK/ramdisk/$EXTRA_DIR"

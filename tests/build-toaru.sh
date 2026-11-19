@@ -330,9 +330,10 @@ The IDE starts with a writable demo in /tmp/nuklear-ide-demo; F5 compiles
 and runs it with /extras/tcc.  Use File > Open or pass another directory,
 for example: /extras/nuklear-ide /extras
 
-Tiny IDE for ToaruOS (ncurses terminal IDE over the shared curses shim):
+Tiny IDE for ToaruOS (ncurses terminal IDE over the shared curses shim;
+also /bin/tiny-ide):
 
-    /extras/tiny-ide /extras/tiny-ide-demo
+    tiny-ide /extras/tiny-ide-demo
 
 F5 compiles demo/hello.c with /bin/tcc (= /extras/tcc/bin/tcc) and runs it;
 the demo prints squares 1..10 and the sum 385.  F10 quits.
