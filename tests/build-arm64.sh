@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# build-toaru-arm64.sh — one-click start of ToaruOS ARM64 in QEMU with a visible window.
+# build-arm64.sh — one-click start of ToaruOS ARM64 in QEMU with a visible window.
 #
-#   ./tests/build-toaru-arm64.sh
+#   ./tests/build-arm64.sh
 #
 # What the script does:
 #   1. Builds the ARM64 ToaruOS images if they are missing (native build).
