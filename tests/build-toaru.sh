@@ -21,15 +21,15 @@
 #      and / stays clean so the desktop icons are not cluttered (mc itself is
 #      /bin/mc).
 #   7. starts a HEADLESS (no window) control VM and verifies:
-#        - /extras/tcc_test (program compiled by the cross tcc),
+#        - the tcc_test example source (tcc/toaru/test.c) compiles and runs
+#          inside the guest (prints ctor=1), like every other example,
 #        - tcc inside ToaruOS compiles and runs /extras/examples/tcc_hello.c,
 #        - every example in /extras compiles and runs,
-#        - /extras/gcc_hello (built by the HOST gcc, see gcc-toaru.sh) runs,
 #        - mini-commander starts, draws its panels with a highlighted current
 #          item, executes its command line on Enter and quits with F10 or a
 #          mouse click on the F10 footer,
-#        - tiny-ide draws its UI, F5 builds and runs the demo with the guest
-#          tcc (the demo prints 385) and F10 returns to the shell,
+#        - tiny-ide draws its UI, F5 builds and runs the opened example with
+#          the guest tcc (tcc_hello prints 55) and F10 returns to the shell,
 #        - NetSurf starts under the compositor, parses and lays out
 #          /extras/netsurf-test.html and survives the first redraw,
 #   8. starts a VISIBLE ToaruOS in QEMU:
@@ -66,7 +66,6 @@ ISO="${DOWNLOAD}/image.iso"
 TOARU_SRC="${DOWNLOAD}/toaruos-src"
 TCC="${BUILD_DIR}/tcc-toaru/bin/x86_64-toaru-tcc"
 TCC_GUEST="${BUILD_DIR}/tcc-toaru/tcc-guest"
-TEST_BIN="${BUILD_DIR}/tcc-toaru/test"
 SYSROOT="${BUILD_DIR}/tcc-toaru/lib"
 MC_SRC="${BUILD_DIR}/minicmd/mini-commander"
 MC_IMPORT="${IMPORT_DIR}/mini-commander"
@@ -147,7 +146,6 @@ if [[ ! -x "${TCC}" || ! -f "${TCC_GUEST}" || ! -f "${SYSROOT}/libc.a" ]]; then
 fi
 [[ -x "${TCC}" ]]     || die "missing ${TCC} (mktcc.sh failed)"
 [[ -f "${TCC_GUEST}" ]] || die "missing ${TCC_GUEST} (mktcc.sh failed)"
-[[ -f "${TEST_BIN}" ]]  || die "missing ${TEST_BIN} (mktcc.sh failed)"
 
 # ------------------------------------------------------ 4) mini-commander
 if [[ ! -d "${MC_SRC}" ]]; then
@@ -183,31 +181,18 @@ mkdir -p "${PUSH}/tcc/bin" "${PUSH}/tcc/lib" "${PUSH}/examples"
 if [[ -d "${REPO_ROOT}/user" ]]; then
     cp -a "${REPO_ROOT}/user/." "${PUSH}/"
 fi
+rm -f "${PUSH}/.gitkeep"   # keeps user/ in git, but must not reach /extras
 
 install -m 755 "${MC_BIN}"     "${PUSH}/mc"
 install -m 755 "${TCC_GUEST}"  "${PUSH}/tcc/bin/tcc"
-install -m 755 "${TEST_BIN}"   "${PUSH}/tcc_test"
 install -m 644 "${SYSROOT}/crt0.o" "${SYSROOT}/crti.o" "${SYSROOT}/crtn.o" \
                "${SYSROOT}/libc.a" "${SYSROOT}/libtcc1.a" "${PUSH}/tcc/lib/"
 cp -a "${SYSROOT}/include" "${PUSH}/tcc/include"
 
-# example source texts + the tcc_test source text, all in /extras/examples
+# example source texts (including tcc_test.c, the test program source from
+# tcc/toaru) — all in /extras/examples, compile_examples.sh runs them all
 cp "${REPO_ROOT}/tests/examples/"*.c "${PUSH}/examples/"
 cp "${REPO_ROOT}/tcc/toaru/test.c" "${PUSH}/examples/tcc_test.c"
-
-# A program built on the HOST by the host gcc — the route a developer would
-# use for their own C (gcc + GNU ld + toaru-elfpad.py, see gcc-toaru.sh).
-# TinyCC is not involved; the control VM below checks that it really runs.
-GCC_TEST="${PUSH}/gcc_hello"
-if command -v gcc > /dev/null 2>&1 && command -v ld > /dev/null 2>&1; then
-    "${REPO_ROOT}/scripts/gcc-toaru.sh" -o "${GCC_TEST}" "${REPO_ROOT}/tests/gcc/hello.c" \
-        || die "gcc-toaru.sh failed"
-else
-    echo "note: gcc/ld not found — /gcc_hello will not be built"
-fi
-
-# Nuklear (for browsing; the old terminal backend is not part of the image)
-cp "${NUKLEAR}" "${PUSH}/nuklear.h"
 
 # Working copy of the ToaruOS sources: the IDE and NetSurf builds patch
 # lib/graphics.c for static sprite decoding, so they must not touch the
@@ -237,8 +222,6 @@ if [[ -x "${TINY_IDE_BUILD}" && -f "${SYSROOT}/libc.a" ]]; then
     echo "== building Tiny IDE for ToaruOS ..."
     "${TINY_IDE_BUILD}" || die "Tiny IDE for ToaruOS"
     install -m 755 "${BUILD_DIR}/output/tiny-ide" "${PUSH}/tiny-ide"
-    mkdir -p "${PUSH}/tiny-ide-demo"
-    cp "${REPO_ROOT}/tiny-ide/demo/hello.c" "${PUSH}/tiny-ide-demo/hello.c"
 else
     echo "note: Tiny IDE for ToaruOS not built (missing sysroot)"
 fi
@@ -333,10 +316,13 @@ for example: /extras/nuklear-ide /extras
 Tiny IDE for ToaruOS (ncurses terminal IDE over the shared curses shim;
 also /bin/tiny-ide):
 
-    tiny-ide /extras/tiny-ide-demo
+    tiny-ide /extras/examples/tcc_hello.c
 
-F5 compiles demo/hello.c with /bin/tcc (= /extras/tcc/bin/tcc) and runs it;
-the demo prints squares 1..10 and the sum 385.  F10 quits.
+F5 compiles the opened file with /bin/tcc (= /extras/tcc/bin/tcc) and runs
+it; tcc_hello prints "1+2+...+10 = 55".  F10 quits.  /extras is read-only:
+copy a file to /tmp first if you want to edit and save it, e.g.
+
+    cp /extras/examples/towers.c /tmp ; tiny-ide /tmp/towers.c
 
 NetSurf (Yutani window, static binary; file:// and plain http:// pages):
 
@@ -356,8 +342,6 @@ https:// does not, because ToaruOS has no TLS stack.
 
 /extras/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a,
 libtcc1.a); /extras/examples holds the example sources.
-/extras/gcc_hello was built on the host by the host gcc (gcc-toaru.sh),
-not by TinyCC: same ToaruOS libc, different compiler.
 GUEST_EOF
 
 # README.txt sorts first in /extras/examples (strcmp order), so the automatic
@@ -417,18 +401,9 @@ demo() {
     # CR (Enter) and for escape sequences whose trailing NL would be read as Enter.
     send_raw() { printf '%s' "$1" > "${BUILD_DIR}/work/in"; }
 
-    "${VM}" send '/extras/tcc_test; echo __T1__'
-    wait_for __T1__ || { echo "  *** /extras/tcc_test did not finish"; rc=1; return $rc; }
-
     # esh does not handle && (only ;), hence two commands in a row
     "${VM}" send 'tcc -o /tmp/tcc_hello /extras/examples/tcc_hello.c ; /tmp/tcc_hello; echo __T2__'
     wait_for __T2__ || { echo "  *** tcc in ToaruOS did not compile tcc_hello.c"; rc=1; return $rc; }
-
-    # The same C library, but the program was compiled by the HOST gcc.
-    if [[ -f "${GCC_TEST}" ]]; then
-        "${VM}" send '/extras/gcc_hello; echo __T4__'
-        wait_for __T4__ || { echo "  *** /extras/gcc_hello (host gcc) did not finish"; rc=1; return $rc; }
-    fi
 
     "${VM}" send '/extras/compile_examples.sh; echo __T3__'
     wait_for __T3__ || { echo "  *** compile_examples.sh did not finish"; rc=1; return $rc; }
@@ -465,26 +440,65 @@ demo() {
     # F3 (viewer) and F4 (editor) used to crash: view_edit.c called mmap(),
     # which ToaruOS does not implement, and then parsed the NULL pointer.
     # Move down to README.txt, open both, and quit each with F10.
-    local dn
-    for dn in 1; do
-        send_raw "$(printf '\033[B')"
-        sleep 0.3
+    #
+    # Every step is verified before the next one: an escape sequence can get
+    # lost on the serial line, and a lost F3 would make the following F10 QUIT
+    # mini-commander, sending the remaining sequences to the shell (esh then
+    # paints a phantom "S" into every following line and the __MC_QUIT__ marker
+    # becomes "__MC_QUIT__S").  log_tail polls the recent lines only.
+    log_tail() { "${VM}" log "${1:-400}" 2>/dev/null; }
+
+    send_raw "$(printf '\033[B')"     # Down - README.txt
+    sleep 1
+    local vj vk qj qk
+    for vj in 1 2 3; do               # F3 - viewer, retry until it opens
+        send_raw "$(printf '\033OR')"
+        for vk in $(seq 1 6); do
+            log_tail | grep -aqE '/examples/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' && break 2
+            sleep 1
+        done
     done
-    send_raw "$(printf '\033OR')"   # F3 - viewer
-    sleep 2
-    send_raw "$(printf '\033[21~')" # F10 - quit the viewer
-    sleep 1
-    send_raw "$(printf '\033OS')"   # F4 - editor
-    sleep 2
-    send_raw "$(printf '\033[21~')" # F10 - quit the (unmodified) editor
-    sleep 1
+    if ! log_tail | grep -aqE '/examples/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%'; then
+        echo "  *** the F3 viewer did not open README.txt"; rc=1
+    fi
+    for qj in 1 2 3; do               # F10 - quit the viewer, wait for panels
+        send_raw "$(printf '\033[21~')"
+        for qk in $(seq 1 5); do
+            log_tail 60 | grep -aq -- '-- /extras/examples --' && break 2
+            sleep 1
+        done
+    done
+    for vj in 1 2 3; do               # F4 - editor, retry until it opens
+        send_raw "$(printf '\033OS')"
+        for vk in $(seq 1 6); do
+            log_tail | grep -aq 'L:\[' && break 2
+            sleep 1
+        done
+    done
+    if ! log_tail | grep -aq 'L:\['; then
+        echo "  *** the F4 editor did not open README.txt"; rc=1
+    fi
+    for qj in 1 2 3; do               # F10 - quit the editor, wait for panels
+        send_raw "$(printf '\033[21~')"
+        for qk in $(seq 1 5); do
+            log_tail 60 | grep -aq -- '-- /extras/examples --' && break 2
+            sleep 1
+        done
+    done
 
     send_raw "$(printf '\033[20~')"
     sleep 1
     send_raw "$(printf '\033[21~')"
     sleep 1
     "${VM}" send 'echo __MC_QUIT__'
-    wait_for __MC_QUIT__ || { echo "  *** mini-commander did not exit on F10"; rc=1; return $rc; }
+    local qm
+    for qm in $(seq 1 40); do
+        log_tail 2000 | grep -aq '__MC_QUIT__' && break
+        sleep 1
+    done
+    if ! log_tail 2000 | grep -aq '__MC_QUIT__'; then
+        echo "  *** mini-commander did not exit on F10"; rc=1; return $rc
+    fi
     local t
     t=$("${VM}" log 400000 2>/dev/null || true)
     if ! at_shell __MC_QUIT__ <<< "$t"; then
@@ -524,9 +538,6 @@ demo() {
     fi
     if grep -aq 'tcc failed on' <<< "$text"; then
         echo "  *** tcc inside ToaruOS failed to compile an example"; rc=1
-    fi
-    if [[ -f "${GCC_TEST}" ]] && ! grep -aq 'gcc_sum: 15' <<< "$text"; then
-        echo "  *** the program built by the host gcc did not print its sum"; rc=1
     fi
     # six examples end with O.K.; btree just prints its keys (last one is 800)
     local ok_count btree_out
@@ -577,14 +588,13 @@ demo() {
     fi
 
     # Tiny IDE: draws the blue ncurses UI over the shared shim, builds and
-    # runs the demo with the guest tcc (F5) and quits with F10.  The IDE gets
-    # a copy of the demo in /tmp, because /extras (ramdisk) is read-only;
-    # the FILE argument opens the demo in a tab (a directory would leave
-    # "No file open" and F5 would have nothing to build).
+    # runs the demo with the guest tcc (F5) and quits with F10.  It opens
+    # /extras/examples/tcc_hello.c (read-only is fine: F5 saves only when the
+    # file was edited); a DIRECTORY argument would leave "No file open" and
+    # F5 would have nothing to build.  The wait greps only the recent lines,
+    # so the same string from the earlier compile_examples run cannot match.
     if [[ -x "${PUSH}/tiny-ide" ]]; then
-        "${VM}" send 'mkdir -p /tmp/tiny-ide-demo'
-        "${VM}" send 'cp /extras/tiny-ide-demo/hello.c /tmp/tiny-ide-demo'
-        "${VM}" send '/extras/tiny-ide /tmp/tiny-ide-demo/hello.c'
+        "${VM}" send 'tiny-ide /extras/examples/tcc_hello.c'
         local ti_ready=0 ti
         for ti in $(seq 1 20); do
             "${VM}" log 4000 2>/dev/null | grep -aq 'EXPLORER' && { ti_ready=1; break; }
@@ -593,16 +603,17 @@ demo() {
         if [[ ${ti_ready} != 1 ]]; then
             echo "  *** tiny-ide did not draw its UI"; rc=1
         else
-            send_raw "$(printf '\033[15~')"   # F5 - save, build + run
+            send_raw "$(printf '\033[15~')"   # F5 - build + run
             local ti_done=0
             for ti in $(seq 1 90); do
-                # The output pane is drawn cell by cell, so spaces can be
-                # missing from the serial log; the sum 385 is unique enough.
-                "${VM}" log 20000 2>/dev/null | grep -aq '385' && { ti_done=1; break; }
+                # The output pane is drawn cell by cell, so spaces already on
+                # the screen are not re-sent; match with and without them.
+                "${VM}" log 60 2>/dev/null |
+                    grep -aqE '1\+2\+\.\.\.\+10 ?= ?55' && { ti_done=1; break; }
                 sleep 1
             done
             if [[ ${ti_done} != 1 ]]; then
-                echo "  *** tiny-ide F5 did not build and run the demo (385)"; rc=1
+                echo "  *** tiny-ide F5 did not build and run the demo (55)"; rc=1
             fi
             send_raw "$(printf '\033[21~')"   # F10 - quit
             sleep 1
@@ -665,9 +676,7 @@ demo() {
     VM_TEST_STARTED=0
 
     if [[ $rc == 0 ]]; then
-        local extra=
-        [[ -f "${GCC_TEST}" ]] && extra=", the program built by the host gcc"
-        echo "== check OK: tcc_test, tcc inside ToaruOS, all examples${extra}, mini-commander and tiny-ide work"
+        echo "== check OK: tcc inside ToaruOS, all examples, mini-commander and tiny-ide work"
     else
         echo "== check FOUND A PROBLEM (see above)"
     fi
