@@ -536,9 +536,21 @@ static void draw_output(struct app *app, const struct layout *layout)
                  app->build_failed ? COLOR_PAIR(P_ERROR) | A_BOLD :
                                      COLOR_PAIR(P_OUTPUT) | A_BOLD);
     int rows = layout->output_h - 1;
+    bool pinned = false;
     if (app->output_follow && app->output_count) {
         app->output_selected = app->output_count - 1;
-        app->output_scroll = app->output_count > rows ? app->output_count - rows : 0;
+        if (app->output_count > rows) {
+            /* Pin the compiler command line (output line 0) at the top of the
+               pane so the build itself stays visible while the tail follows
+               the program; otherwise the pane shows only the last lines and
+               F5 looks as if it never compiled anything. */
+            app->output_scroll = app->output_count - rows + 1;
+            if (app->output_scroll < 1)
+                app->output_scroll = 1;
+            pinned = true;
+        } else {
+            app->output_scroll = 0;
+        }
     }
     if (app->output_selected < app->output_scroll)
         app->output_scroll = app->output_selected;
@@ -547,7 +559,7 @@ static void draw_output(struct app *app, const struct layout *layout)
     if (app->output_scroll < 0)
         app->output_scroll = 0;
     for (int row = 0; row < rows; ++row) {
-        int index = app->output_scroll + row;
+        int index = pinned && row == 0 ? 0 : app->output_scroll + row - (pinned ? 1 : 0);
         struct output_line *line = output_line_at(app, index);
         if (!line)
             break;
