@@ -128,21 +128,43 @@ fi
 
 # Nuklear IDE: compiled by the aarch64-unknown-toaru gcc from the local build
 # tree (see tcc/toaru/README-aarch64.md); the IDE is a static Yutani program.
+# The toolchain only exists after ./scripts/build-toaruos.sh -a native — skip
+# with a note instead of failing the whole run when it is not there.
 NUKLEAR_IDE_A64="${BUILD_DIR}/output/nuklear-ide-toaru-aarch64"
-if [[ ! -x "${NUKLEAR_IDE_A64}" ]]; then
+TC_LOCAL="${BUILD_DIR}/toaruos-native-aarch64/gcc_local"
+if [[ ! -x "${NUKLEAR_IDE_A64}" && -x "${TC_LOCAL}/bin/aarch64-unknown-toaru-gcc" ]]; then
     echo "== building Nuklear IDE for aarch64 ToaruOS ..."
-    TC="${BUILD_DIR}/toaruos-native-aarch64/gcc_local"
-    PATH="${TC}/bin:$PATH" \
-    LD_LIBRARY_PATH="${TC}/x86_64-pc-linux-gnu/aarch64-unknown-toaru/lib:${TC}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    PATH="${TC_LOCAL}/bin:$PATH" \
+    LD_LIBRARY_PATH="${TC_LOCAL}/x86_64-pc-linux-gnu/aarch64-unknown-toaru/lib:${TC_LOCAL}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     SYSROOT="${TCC_A64}/lib" TOARU_SRC="${SRC}" \
     CC=aarch64-unknown-toaru-gcc LD=aarch64-unknown-toaru-ld AR=aarch64-unknown-toaru-ar \
     ARCH_FLAGS="-fno-stack-protector" LINK_EMU="-m elf64toaru_aarch64" LINK_BASE=0x400000 \
     EXTRA_LINK="-la64lite" OUT="${NUKLEAR_IDE_A64}" \
         "${REPO_ROOT}/nuklear-ide/toaru/build.sh" || die "nuklear-ide aarch64"
 fi
+if [[ ! -x "${NUKLEAR_IDE_A64}" ]]; then
+    echo "note: Nuklear IDE for aarch64 not built (missing ${TC_LOCAL}) — /extras/nuklear-ide will be missing"
+fi
+
+# Tiny IDE: the ncurses IDE over the shared mc-toaru curses shim, plain C —
+# the aarch64 cross tcc compiles it with the same recipe as the x86_64 one.
+TINY_IDE_A64_DIR="${BUILD_DIR}/output/tiny-ide-aarch64"
+TINY_IDE_A64="${TINY_IDE_A64_DIR}/tiny-ide"
+if [[ ! -x "${TINY_IDE_A64}" ]]; then
+    echo "== building Tiny IDE for aarch64 ToaruOS ..."
+    TCC="${TCC_A64}/bin/aarch64-toaru-tcc" SYSROOT="${TCC_A64}/lib" \
+        OUT="${TINY_IDE_A64_DIR}" "${REPO_ROOT}/tiny-ide/build-toaru.sh" \
+        || die "tiny-ide aarch64"
+fi
 
 # mini-commander: the mc-toaru port (ncurses shim + compat) is plain C, so the
-# aarch64 build is the same recipe with our aarch64 cross tcc.
+# aarch64 build is the same recipe with our aarch64 cross tcc.  The sources
+# were cloned by tests/build-toaru.sh (x86_64) into _import; seed the build
+# tree from there when the clone already exists.
+if [[ -d "${IMPORT_DIR}/mini-commander" && ! -d "${BUILD_DIR}/minicmd/mini-commander" ]]; then
+    mkdir -p "${BUILD_DIR}/minicmd"
+    cp -a "${IMPORT_DIR}/mini-commander" "${BUILD_DIR}/minicmd/"
+fi
 if [[ ! -x "${MC_A64}/mc" ]]; then
     echo "== building mini-commander for aarch64 ToaruOS ..."
     TCC="${TCC_A64}/bin/aarch64-toaru-tcc" SYSROOT="${TCC_A64}/lib" \
@@ -150,7 +172,7 @@ if [[ ! -x "${MC_A64}/mc" ]]; then
 fi
 
 if [[ ! -x "${PUSH_A64}/tcc/bin/tcc" || ! -x "${PUSH_A64}/mc" ||
-      ! -x "${PUSH_A64}/nuklear-ide" || ! -f "${PUSH_A64}/netsurf-test.html" ]]; then
+      ! -x "${PUSH_A64}/tiny-ide" || ! -f "${PUSH_A64}/netsurf-test.html" ]]; then
     echo "== preparing the ramdisk payload (tcc + mc + IDE + NetSurf) ..."
     rm -rf "${PUSH_A64}"
     W="${PUSH_A64}"
@@ -160,8 +182,10 @@ if [[ ! -x "${PUSH_A64}/tcc/bin/tcc" || ! -x "${PUSH_A64}/mc" ||
                             # plain payload dir, not an extracted ramdisk)
     install -m 755 "${TCC_A64}/tcc-guest-aarch64" "${W}/extras/tcc/bin/tcc"
     install -m 755 "${MC_A64}/mc" "${W}/extras/mc"
-    install -m 755 "${NUKLEAR_IDE_A64}" "${W}/extras/nuklear-ide"
+    install -m 755 "${TINY_IDE_A64}" "${W}/extras/tiny-ide"
+    [[ -x "${NUKLEAR_IDE_A64}" ]] && install -m 755 "${NUKLEAR_IDE_A64}" "${W}/extras/nuklear-ide"
     ln -s /extras/mc "${W}/bin/mc"
+    ln -s /extras/tiny-ide "${W}/bin/tiny-ide"
     # NetSurf for aarch64 (built by netsurf-toaru/build.sh with the a64
     # toolchain driver); reused when present, payload skips it otherwise.
     NS_A64="${BUILD_DIR}/netsurf-a64/netsurf-3.11"
@@ -202,6 +226,10 @@ Run them with:
 mini-commander:
 
     mc /extras/examples      (also /bin/mc)
+
+Tiny IDE (also /bin/tiny-ide):
+
+    tiny-ide /extras/examples/tcc_hello.c
 GUEST_EOF
     # a cross-compiled hello: works even before any guest-side compilation
     "${TCC_A64}/bin/aarch64-toaru-tcc" -o "${W}/extras/hello" \
@@ -243,14 +271,44 @@ fi
 BASE_RAMDISK="${REL_DIR}/ramdisk.igz"
 [[ -f "${BASE_RAMDISK}" ]] || BASE_RAMDISK="${SRC}/ramdisk.igz"
 echo "== packing the payload onto $(basename "${BASE_RAMDISK}") ..."
+# The repack runs as a non-root user, so a plain extraction loses the stock
+# ownership AND the setuid bits (/bin/sudo is setuid root upstream — the
+# previous tar forced owner 1000 on everything and sudo answered "effective
+# uid is not 0").  Under fakeroot the extraction keeps uid 0 and the setuid
+# bit; only our payload is mapped to the guest's "local" user (1000:1000).
+# Without fakeroot fall back to the old flattening (sudo stays broken).
 W=$(mktemp -d "${BUILD_DIR}/a64pack.XXXXXX")
-gzip -dc "${BASE_RAMDISK}" | tar -xf - -C "${W}"
-cp -a "${PUSH_A64}/." "${W}/"
-( cd "${W}" && find . -mindepth 1 -maxdepth 1 -printf '%P\0' |
-    tar --null --owner=1000 --group=1000 -cf - -T - ) \
-    | gzip -9 -n > "${RAMDISK_A64}"
+if command -v fakeroot > /dev/null 2>&1; then
+    fakeroot -- bash -c '
+        set -eu
+        W="$1"; BASE="$2"; PUSH="$3"; OUT="$4"
+        gzip -dc "$BASE" | tar -xf - -C "$W"
+        cp -a "$PUSH/." "$W/"
+        # the payload was built by the host user; make it "local" in the guest
+        find "$W/extras" -exec chown 1000:1000 {} +
+        ( cd "$W" && find . -mindepth 1 -maxdepth 1 -printf "%P\0" |
+            tar --null -cf - -T - ) | gzip -9 -n > "$OUT"
+    ' repack "$W" "${BASE_RAMDISK}" "${PUSH_A64}" "${RAMDISK_A64}"
+    echo "  (fakeroot: stock owners and setuid bits preserved)"
+else
+    echo "  note: fakeroot missing — owners flattened to 1000, sudo/Packages stay broken"
+    gzip -dc "${BASE_RAMDISK}" | tar -xf - -C "${W}"
+    cp -a "${PUSH_A64}/." "${W}/"
+    ( cd "${W}" && find . -mindepth 1 -maxdepth 1 -printf '%P\0' |
+        tar --null --owner=1000 --group=1000 -cf - -T - ) \
+        | gzip -9 -n > "${RAMDISK_A64}"
+fi
 rm -rf "${W}"
 echo "== ramdisk: ${RAMDISK_A64}"
+# Expose the boot artifacts next to the ramdisk the same way mkiso.sh does
+# for x86_64 (_build/kernel.mb + _build/ramdisk.tgz), so a VM can be started
+# without the source tree:
+#   qemu-system-aarch64 -M virt -cpu cortex-a72 \
+#     -kernel _build/bootstub-a64 -append "root=/dev/ram0 migrate start=--headless" \
+#     -fw_cfg name=opt/org.toaruos.initrd,file=_build/ramdisk-a64.tgz \
+#     -fw_cfg name=opt/org.toaruos.kernel,file=_build/kernel-a64
+install -m 644 "${SRC}/misaka-kernel" "${BUILD_DIR}/kernel-a64"
+install -m 755 "${SRC}/bootstub" "${BUILD_DIR}/bootstub-a64"
 
 # ------------------------------------------------------- 2) QEMU helpers
 # toaru-vm.sh is x86_64-only; here QEMU runs directly and the serial line is
@@ -318,7 +376,20 @@ serial_log() {    # serial_log [lines] - last lines of the guest serial output
 wait_for() {      # wait_for <regex> [timeout s] - watch the serial log
     local pattern=$1 timeout=${2:-120} i
     for i in $(seq 1 "${timeout}"); do
-        if serial_log 2000 | grep -aq "${pattern}"; then return 0; fi
+        if serial_log 2000 | grep -a "${pattern}" > /dev/null; then return 0; fi
+        kill -0 "${QEMU_PID}" 2> /dev/null || return 1
+        sleep 1
+    done
+    return 1
+}
+
+wait_for_exact() {  # like wait_for, but the line must BE the pattern; the
+                    # getty echoes every typed command, so a substring match
+                    # would hit the echo of "echo __MARKER__" long before the
+                    # command actually runs (measured 2026-11-20)
+    local pattern=$1 timeout=${2:-120} i
+    for i in $(seq 1 "${timeout}"); do
+        if serial_log 2000 | grep -ax "${pattern}" > /dev/null; then return 0; fi
         kill -0 "${QEMU_PID}" 2> /dev/null || return 1
         sleep 1
     done
@@ -329,6 +400,7 @@ wait_for() {      # wait_for <regex> [timeout s] - watch the serial log
 demo() {
     local rc=0
     echo "== starting the control ToaruOS ARM64 ..."
+    echo "  [$(date +%T)] booting"
     qemu_start 0 "${WORK}/qemu-check.log"
 
     # The guest takes a while to decompress the ramdisk and start init.
@@ -341,7 +413,8 @@ demo() {
     fi
     sleep 1
     serial_send 'echo __BOOT_OK__'
-    if ! wait_for '__BOOT_OK__' 30; then
+    echo "  [$(date +%T)] shell reached"
+    if ! wait_for_exact '__BOOT_OK__' 30; then
         echo "  *** guest did not answer on the serial line"
         rc=1
         return $rc
@@ -349,14 +422,18 @@ demo() {
 
     # The payload works: the cross-built hello first, then the in-guest tcc
     # compiling tcc_hello.c by itself (tcg emulation is slow — long timeout).
-    serial_send '/extras/hello'
-    if ! wait_for '55, argc = 1' 60; then
+    # Both print the same "55, argc = 1", so each check needs its OWN marker:
+    # waiting for the output alone would match the previous check's stale
+    # lines and let the compile keep running in the background (it then
+    # competes for the CPU with everything that follows — measured 2026-11-20).
+    serial_send '/extras/hello; echo __HELLO_OK__'
+    if ! wait_for_exact '__HELLO_OK__' 60; then
         echo "  *** /extras/hello (cross-compiled) did not run"
         rc=1
         return $rc
     fi
-    serial_send '/bin/tcc -o /tmp/tcc_hello /extras/examples/tcc_hello.c ; /tmp/tcc_hello'
-    if ! wait_for '55, argc = 1' 180; then
+    serial_send '/bin/tcc -o /tmp/tcc_hello /extras/examples/tcc_hello.c ; /tmp/tcc_hello; echo __TCC_OK__'
+    if ! wait_for_exact '__TCC_OK__' 180; then
         echo "  *** the in-guest tcc did not compile/run tcc_hello.c"
         rc=1
         return $rc
@@ -364,6 +441,7 @@ demo() {
 
     # mini-commander: panels must draw and F10 must return to the shell.
     serial_send '/bin/mc /extras/examples'
+    echo "  [$(date +%T)] starting mini-commander"
     # tcg emulation of aarch64 is slow: mc's first draw took >30 s (measured),
     # hence the generous timeout; the panels must be visible before F10.
     if ! wait_for '+-- /extras/examples ' 120; then
@@ -382,7 +460,7 @@ demo() {
     # and a prompt has to follow the marker — the old prompts stay in the
     # 2000-line log window, so the marker alone would match too early.
     serial_send 'echo __MC_QUIT__'
-    if ! wait_for '__MC_QUIT__' 60; then
+    if ! wait_for_exact '__MC_QUIT__' 60; then
         echo "  *** mini-commander did not exit on F10"
         rc=1
         return $rc
@@ -395,10 +473,80 @@ demo() {
         return $rc
     fi
 
+    # Tiny IDE: draws the blue ncurses UI, F5 builds and runs tcc_hello.c
+    # with the in-guest tcc ("1+2+...+10 = 55") and F10 returns to the shell.
+    # tcg emulation is slow — the first draw and the compile both take a
+    # while, hence the generous timeouts.  The output pane is drawn cell by
+    # cell, so spaces already on the screen are not re-sent; match with and
+    # without them.
+    # tcc -O2 inside tcg-emulated aarch64 takes ~30 minutes even for
+    # tcc_hello.c (measured 2026-11-19); the IDE therefore compiles with
+    # IDE_CFLAGS=-g0 here — no optimization, seconds instead of half an hour.
+    serial_send 'export IDE_CFLAGS=-g0'
+    sleep 1
+    serial_send '/bin/tiny-ide /extras/examples/tcc_hello.c'
+    echo "  [$(date +%T)] tiny-ide starting"
+    if ! wait_for 'EXPLORER' 240; then
+        echo "  *** tiny-ide did not draw its UI"
+        rc=1
+        return $rc
+    fi
+    printf '\033[15~' > "${WORK}/serial.in"   # F5 - build + run
+    echo "  [$(date +%T)] F5 sent - waiting for the in-guest compile and run"
+    ( for sj in $(seq 1 90); do
+          echo "$(date +%T) $(stat -c%s "${WORK}/serial.log" 2>/dev/null)"
+          sleep 10
+      done ) > "${WORK}/size.log" & SIZE_PID=$!
+    # wait_for greps in BASIC regex mode, so the pattern must be BRE-safe:
+    # plain "+" and "[.]" instead of "\+", and "*" as the only quantifier.
+    # The output pane is drawn cell by cell, so spaces already on the screen
+    # are not re-sent; match with and without them.
+    if ! wait_for '1+2+[.][.][.]+10 *= *55' 600; then
+        # the compile can finish right at the edge of the window; give the
+        # serial log a little extra time before declaring failure
+        local fj
+        for fj in $(seq 1 30); do
+            serial_log 2000 | grep -a '1+2+[.][.][.]+10 *= *55' > /dev/null && break
+            sleep 1
+        done
+        if ! serial_log 2000 | grep -a '1+2+[.][.][.]+10 *= *55' > /dev/null; then
+            echo "  *** tiny-ide F5 did not build and run tcc_hello.c (55)"
+            echo "  debug: size log:"; cat "${WORK}/size.log" 2>/dev/null | tail -20
+            kill "${SIZE_PID}" 2>/dev/null
+            serial_log 2000 > "${WORK}/cleaned-at-failure.txt" 2>/dev/null
+            echo "  debug: serial.log $(wc -c < "${WORK}/serial.log" 2>/dev/null) bytes," \
+                 "$(wc -l < "${WORK}/serial.log" 2>/dev/null) lines," \
+                 "raw '1+2+' hits: $(grep -ac '1+2+' "${WORK}/serial.log" 2>/dev/null)," \
+                 "needle hits now: $(serial_log 2000 | grep -ac '1+2+[.][.][.]+10 *= *55' 2>/dev/null)," \
+                 "needle hits in saved stream: $(grep -ac '1+2+[.][.][.]+10 *= *55' "${WORK}/cleaned-at-failure.txt" 2>/dev/null)"
+            serial_log 8 | tail -4 | cut -c1-90
+            rc=1
+            return $rc
+        fi
+        echo "  (note: the output appeared near the end of the wait window)"
+    fi
+    echo "  [$(date +%T)] F5 compile+run confirmed"
+    printf '\033[21~' > "${WORK}/serial.in"   # F10 - quit
+    sleep 2
+    serial_send 'echo __TI_QUIT__'
+    echo "  [$(date +%T)] quitting tiny-ide"
+    if ! wait_for_exact '__TI_QUIT__' 60; then
+        echo "  *** tiny-ide did not exit on F10"
+        rc=1
+        return $rc
+    fi
+    if ! awk -v m="__TI_QUIT__" '$0 == m { seen = 1; next }
+            seen && /local@livecd/ { found = 1 }
+            END { exit !found }' <<< "$(serial_log 2000)"; then
+        echo "  *** tiny-ide did not return to the shell"
+        rc=1
+        return $rc
+    fi
+
     qemu_stop
 
     if [[ $rc == 0 ]]; then
-        echo "== check OK: ToaruOS ARM64 boots, answers, and the in-guest tcc and mc work"
+        echo "== check OK: ToaruOS ARM64 boots, answers, and the in-guest tcc, mc and tiny-ide work"
     else
         echo "== check FOUND A PROBLEM (see above)"
     fi

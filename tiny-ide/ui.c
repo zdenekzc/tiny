@@ -25,6 +25,12 @@ static void define_extra_keys(void)
     define_key("\033[1;2B", IDE_KEY_SHIFT_DOWN);
     define_key("\033[1;2C", IDE_KEY_SHIFT_RIGHT);
     define_key("\033[1;2D", IDE_KEY_SHIFT_LEFT);
+    /* The ToaruOS terminal encodes Shift+arrows as CSI 2 A/B/C/D instead of
+     * the xterm form; bind both so selection works there too. */
+    define_key("\033[2A", IDE_KEY_SHIFT_UP);
+    define_key("\033[2B", IDE_KEY_SHIFT_DOWN);
+    define_key("\033[2C", IDE_KEY_SHIFT_RIGHT);
+    define_key("\033[2D", IDE_KEY_SHIFT_LEFT);
     define_key("\033[1;2H", IDE_KEY_SHIFT_HOME);
     define_key("\033[1;2F", IDE_KEY_SHIFT_END);
     define_key("\033[1;5D", IDE_KEY_CTRL_LEFT);

@@ -79,6 +79,9 @@ TinyCC lze také zvolit prostředím:
 TCC=/cesta/k/tcc ./tiny-ide.bin demo/hello.c
 # IDE_TCC má přednost před TCC; nestandardní -B lze zadat takto:
 TCC_B=/cesta/k/tcc-runtime ./tiny-ide.bin demo/hello.c
+# IDE_CFLAGS nahradí výchozí sadu přepínačů (-std=c11 -Wall -Wextra -O2 -g),
+# hodí se na pomalých emulovaných cílech, kde tcc -O2 trvá minut:
+IDE_CFLAGS=-g0 ./tiny-ide.bin demo/hello.c
 ```
 
 C soubory se překládají TinyCC. Pro `.cc`, `.cpp` a `.cxx` se místo něj použije

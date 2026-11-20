@@ -1,8 +1,7 @@
-diff --git a/dialog.c b/dialog.c
-index 20e4861..e50db27 100644
---- a/dialog.c
-+++ b/dialog.c
-@@ -519,13 +519,11 @@ int show_chmod_dialog(const char *name, const struct stat *info, mode_t *mode, m
+diff -ruN orig/dialog.c src/dialog.c
+--- orig/dialog.c	2026-11-19 21:37:50.830488743 +0100
++++ src/dialog.c	2026-11-20 02:30:49.436690455 +0100
+@@ -519,13 +519,11 @@
      // Keep the login name held by main() intact: getpwuid() shares static storage.
      char owner[256], group[256], lookup[CMD_MAX];
      struct passwd owner_entry, *owner_info=NULL;
@@ -18,10 +17,9 @@ index 20e4861..e50db27 100644
  
      int focus=0, pressed=-1, action=CHMOD_CANCEL;
      while (1) {
-diff --git a/includes.h b/includes.h
-index 1497b1a..2aa09c9 100644
---- a/includes.h
-+++ b/includes.h
+diff -ruN orig/includes.h src/includes.h
+--- orig/includes.h	2026-11-19 21:37:50.830488743 +0100
++++ src/includes.h	2026-11-20 02:30:49.437270222 +0100
 @@ -5,9 +5,18 @@
  #include <errno.h>
  #include <fcntl.h>
@@ -114,11 +112,10 @@ index 1497b1a..2aa09c9 100644
 -#include <linux/fs.h>
 +/* #include <linux/fs.h> */
  #endif
-diff --git a/init.c b/init.c
-index 247a979..01b0e43 100644
---- a/init.c
-+++ b/init.c
-@@ -26,7 +26,9 @@ void initialize_ncurses() {
+diff -ruN orig/init.c src/init.c
+--- orig/init.c	2026-11-19 21:37:50.830488743 +0100
++++ src/init.c	2026-11-20 02:30:49.440377258 +0100
+@@ -26,11 +26,16 @@
  
  void init_screen() {
      initialize_ncurses();
@@ -129,7 +126,15 @@ index 247a979..01b0e43 100644
      mouseinterval(50);
      mousemask(ALL_MOUSE_EVENTS|REPORT_MOUSE_POSITION, NULL);
      mouse_tracking(1);
-@@ -87,6 +89,7 @@ void init_screen() {
+-    ESCDELAY = 50;
++    /* Alt+Enter (the two-press Esc+Enter habit) inserts the current file name
++     * into the command line, but only when both bytes arrive inside the ESC
++     * window; half a second is enough for fingers, 50 ms was not. */
++    ESCDELAY = 500;
+     start_color();
+     raw();
+     keypad(stdscr, TRUE);
+@@ -87,6 +92,7 @@
          }
          init_pair(pair, foreground, background);
      }
@@ -137,17 +142,127 @@ index 247a979..01b0e43 100644
  }
  
  void cleanup() {
-diff --git a/mc.c b/mc.c
-index b78bf47..cdc04b6 100644
---- a/mc.c
-+++ b/mc.c
+diff -ruN orig/init.c.orig src/init.c.orig
+--- orig/init.c.orig	1970-01-01 01:00:00.000000000 +0100
++++ src/init.c.orig	2026-11-20 02:30:49.440661532 +0100
+@@ -0,0 +1,107 @@
++#include "includes.h"
++#include "types.h"
++#include "globals.h"
++
++
++SCREEN *screen = NULL;
++
++void initialize_ncurses() {
++    if (screen) return;
++
++    // Decode terminal text using the user's locale without changing date/number formats.
++    setlocale(LC_CTYPE, "");
++
++    const char *terms[] = {NULL, "xterm", "xfce", "linux"};
++    screen = NULL;
++    for (int i = 0; i < 4 && screen == NULL; ++i) {
++        screen = newterm(terms[i], stdout, stdin);
++    }
++
++    if (screen == NULL) {
++        // last attempt
++        initscr();
++    }
++}
++
++
++void init_screen() {
++    initialize_ncurses();
++    refresh();
++    mouseinterval(50);
++    mousemask(ALL_MOUSE_EVENTS|REPORT_MOUSE_POSITION, NULL);
++    mouse_tracking(1);
++    ESCDELAY = 50;
++    start_color();
++    raw();
++    keypad(stdscr, TRUE);
++    // Let wide-character input decode Alt and alternate function-key sequences.
++    define_key("\033s", KEY_ALT_s);
++    define_key("\033a", KEY_ALT_a);
++    define_key("\033p", KEY_ALT_p);
++    define_key("\033n", KEY_ALT_n);
++    define_key("\033g", KEY_ALT_g);
++    define_key("\033\n", KEY_ALT_ENTER);
++    define_key("\033\r", KEY_ALT_ENTER);
++    define_key("\033[1~", KEY_HOME);
++    define_key("\033[2~", KEY_IC);
++    define_key("\033[4~", KEY_END);
++    define_key("\033[12~", KEY_F(2));
++    define_key("\033[13~", KEY_F(3));
++    define_key("\033[14~", KEY_F(4));
++    define_key("\033[28~", KEY_SHIFT_F5);
++    define_key("\033[29~", KEY_SHIFT_F6);
++    define_key("\033[31~", KEY_SHIFT_F5);
++    define_key("\033[32~", KEY_SHIFT_F6);
++    define_key("\033[33~", KEY_SHIFT_F7);
++    define_key("\033[15;2~", KEY_SHIFT_F5);
++    define_key("\033[17;2~", KEY_SHIFT_F6);
++    define_key("\033[18;2~", KEY_SHIFT_F7);
++    noecho();
++    curs_set(1);
++
++    // Each row defines one color pair; monochrome preserves light dialog/footer backgrounds.
++    static const short palette[][3]={
++        {COLOR_WHITE_ON_BLACK, COLOR_WHITE, COLOR_BLACK},
++        {COLOR_BLACK_ON_WHITE, COLOR_BLACK, COLOR_WHITE},
++        {COLOR_WHITE_ON_RED, COLOR_WHITE, COLOR_RED},
++        {COLOR_WHITE_ON_BLUE, COLOR_WHITE, COLOR_BLUE},
++        {COLOR_YELLOW_ON_BLUE, COLOR_YELLOW, COLOR_BLUE},
++        {COLOR_GREEN_ON_BLUE, COLOR_GREEN, COLOR_BLUE},
++        {COLOR_RED_ON_BLUE, COLOR_RED, COLOR_BLUE},
++        {COLOR_MAGENTA_ON_BLUE, COLOR_MAGENTA, COLOR_BLUE},
++        {COLOR_CYAN_ON_BLUE, COLOR_CYAN, COLOR_BLUE},
++        {COLOR_CYAN_ON_BLACK, COLOR_CYAN, COLOR_BLACK},
++        {COLOR_YELLOW_ON_CYAN, COLOR_YELLOW, COLOR_CYAN},
++        {COLOR_BLACK_ON_CYAN, COLOR_BLACK, COLOR_CYAN},
++        {COLOR_BLACK_ON_CYAN_BTN, COLOR_BLACK, COLOR_CYAN},
++        {COLOR_BLACK_ON_CYAN_PMPT, COLOR_BLACK, COLOR_CYAN},
++        {COLOR_BLUE_ON_WHITE, COLOR_BLUE, COLOR_WHITE},
++        {COLOR_BLUE_ON_CYAN, COLOR_BLUE, COLOR_CYAN}
++    };
++    for (size_t i=0; i < sizeof(palette)/sizeof(*palette); i++) {
++        short pair=palette[i][0], foreground=palette[i][1], background=palette[i][2];
++        if (!color_enabled) {
++            int light=pair == COLOR_BLACK_ON_WHITE || pair == COLOR_BLACK_ON_CYAN || pair == COLOR_BLUE_ON_WHITE;
++            foreground=light ? COLOR_BLACK : COLOR_WHITE;
++            background=light ? COLOR_WHITE : COLOR_BLACK;
++        }
++        init_pair(pair, foreground, background);
++    }
++}
++
++void cleanup() {
++    delwin(win1);
++    delwin(win2);
++    mouse_tracking(0);
++    endwin();
++}
++
++void redraw_ui() {
++   // Get screen dimensions
++   int maxY, maxX;
++   getmaxyx(stdscr, maxY, maxX);
++
++   draw_windows(maxY, maxX);
++   draw_buttons(maxY, maxX, panel_buttons);
++   update_cmd();
++}
+diff -ruN orig/mc.c src/mc.c
+--- orig/mc.c	2026-11-19 21:37:50.830488743 +0100
++++ src/mc.c	2026-11-20 02:30:49.440853800 +0100
 @@ -1,4 +1,5 @@
  #include "includes.h"
 +#include <termios.h>
  #include "types.h"
  #include "globals.h"
  
-@@ -30,6 +31,48 @@ int noesc(int ch) {
+@@ -30,6 +31,48 @@
      return ch;
  }
  
@@ -196,7 +311,7 @@ index b78bf47..cdc04b6 100644
  
  int main(int argc, char *argv[]) {
  
-@@ -342,6 +385,7 @@ int main(int argc, char *argv[]) {
+@@ -342,6 +385,7 @@
                      if (execute_file(cmd) < 0) perror(cmd);
                  }
                  else system(cmd); // Explicitly typed commands retain shell syntax.
@@ -204,11 +319,10 @@ index b78bf47..cdc04b6 100644
                  init_screen();
                  memset(cmd, 0, CMD_MAX);
                  cmd_len = cursor_pos = cmd_offset = prompt_length = 0;
-diff --git a/operations.c b/operations.c
-index 06b0e7a..241f8f7 100644
---- a/operations.c
-+++ b/operations.c
-@@ -373,23 +373,7 @@ int recursive_operation(const char *src, const char *tgt, operationContext *cont
+diff -ruN orig/operations.c src/operations.c
+--- orig/operations.c	2026-11-19 21:37:50.831488727 +0100
++++ src/operations.c	2026-11-20 02:30:49.441287994 +0100
+@@ -373,23 +373,7 @@
          }
      }
  
@@ -233,11 +347,34 @@ index 06b0e7a..241f8f7 100644
  
      return OPERATION_OK;
  }
-diff --git a/view_edit.c b/view_edit.c
-index 6b102d0..36340d6 100644
---- a/view_edit.c
-+++ b/view_edit.c
-@@ -169,11 +169,29 @@ static file_lines *load_file_lines(const char *filename, off_t *num_lines, off_t
+diff -ruN orig/ui.c src/ui.c
+--- orig/ui.c	2026-11-19 21:37:50.833488696 +0100
++++ src/ui.c	2026-11-20 02:30:49.474924790 +0100
+@@ -90,7 +90,11 @@
+ void shorten(char *name, int width, char *result) {
+     result[0]='\0';
+     if (width <= 0) return;
+-    wchar_t text[CMD_MAX];
++    /* wchar_t[CMD_MAX] is 64 KB of stack; inside the progress redraws and the
++     * recursive deletes that overflowed the ToaruOS aarch64 stack (segfault).
++     * The heap keeps the behaviour, the stack stays small. */
++    wchar_t *text=malloc(CMD_MAX * sizeof(*text));
++    if (!text) return;
+     mbstate_t state={0};
+     size_t count=0;
+     while (*name && count < CMD_MAX - 1) {
+@@ -120,6 +124,7 @@
+     }
+     wcstombs(result, text, CMD_MAX - 1);
+     result[CMD_MAX - 1]='\0';
++    free(text);
+ }
+ 
+ // Draw complete UTF-8 cells in a column viewport without wrapping or emitting controls.
+diff -ruN orig/view_edit.c src/view_edit.c
+--- orig/view_edit.c	2026-11-19 21:37:50.833488696 +0100
++++ src/view_edit.c	2026-11-20 02:30:49.441690378 +0100
+@@ -169,11 +169,29 @@
          return NULL;
      }
      size_t length=(size_t)statbuf.st_size;
@@ -270,7 +407,7 @@ index 6b102d0..36340d6 100644
      close(fd);
      errno=error;
      return head;
-@@ -269,13 +287,11 @@ static off_t move_mark(off_t mark, off_t start, off_t end, size_t length, int ri
+@@ -269,13 +287,11 @@
      return start+(right_affinity ? length : 0);
  }
  
@@ -287,7 +424,7 @@ index 6b102d0..36340d6 100644
  }
  
  // Find a fixed keyword, rejecting suffixes such as "integer" or "int中文".
-@@ -467,8 +483,10 @@ int view_edit_file(char *filename, int editor_mode) {
+@@ -467,8 +483,10 @@
      wbkgd(toprow_win, COLOR_PAIR(COLOR_BLACK_ON_CYAN));
      wattron(toprow_win, COLOR_PAIR(COLOR_BLACK_ON_CYAN));
  
@@ -300,7 +437,7 @@ index 6b102d0..36340d6 100644
      if (!toprow_win || !content_win)
      {
          delwin(toprow_win);
-@@ -798,7 +816,7 @@ int view_edit_file(char *filename, int editor_mode) {
+@@ -798,7 +816,7 @@
              case KEY_RESIZE:
                  getmaxyx(stdscr, max_y, max_x);
                  wresize(toprow_win, 1, max_x);
@@ -309,7 +446,7 @@ index 6b102d0..36340d6 100644
                  break;
              case '\n':
              case '\r':
-@@ -946,5 +964,7 @@ close_editor:
+@@ -946,5 +964,7 @@
      delwin(toprow_win);
      delwin(content_win);
      free_file_lines(lines);

@@ -183,8 +183,16 @@ bool write_file_atomic(const char *path, const char *data, size_t length)
     int error = 0;
     if (!write_all(fd, data, length))
         error = errno;
-    if (!error && have_original && fchown(fd, original.st_uid, original.st_gid) != 0)
-        error = errno;
+    if (!error && have_original &&
+        (original.st_uid != geteuid() || original.st_gid != getegid()) &&
+        fchown(fd, original.st_uid, original.st_gid) != 0) {
+        /* Only root may change ownership; as an unprivileged user the saved
+         * file keeps the caller's identity instead (a ToaruOS guest runs
+         * as "local", the Linux build as root).  Any other fchown error
+         * still fails the save. */
+        if (errno != EPERM)
+            error = errno;
+    }
     if (!error && fchmod(fd, have_original ? original.st_mode & 07777 : 0644) != 0)
         error = errno;
     if (!error && fsync(fd) != 0)

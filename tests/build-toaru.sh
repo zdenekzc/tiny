@@ -376,10 +376,10 @@ demo() {
 
     local i
     for i in $(seq 1 60); do
-        if "${VM}" log 2000 2>/dev/null | grep -aq 'root@livecd'; then break; fi
+        if grep -aq 'root@livecd' < <("${VM}" log 2000 2>/dev/null); then break; fi
         sleep 1
     done
-    "${VM}" log 2000 2>/dev/null | grep -aq 'root@livecd' \
+    grep -aq 'root@livecd' < <("${VM}" log 2000 2>/dev/null) \
         || { echo "  *** guest did not boot within 60 s"; rc=1; return $rc; }
 
     wait_for() {   # wait_for <marker> - an exact line in the log
@@ -431,7 +431,7 @@ demo() {
         echo "  *** Enter did not execute the mini-commander command line"; rc=1
     fi
     # The output stays on the normal screen (not the panels) until F9.
-    if ! "${VM}" log 4000 2>/dev/null | grep -aq '\[F9\] return to mini-commander'; then
+    if ! grep -aq '\[F9\] return to mini-commander' < <("${VM}" log 4000 2>/dev/null); then
         echo "  *** the command output did not wait for F9"; rc=1
     fi
     send_raw "$(printf '\033[20~')"   # F9 - back to the panels
@@ -454,34 +454,34 @@ demo() {
     for vj in 1 2 3; do               # F3 - viewer, retry until it opens
         send_raw "$(printf '\033OR')"
         for vk in $(seq 1 6); do
-            log_tail | grep -aqE '/examples/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' && break 2
+            grep -aqE '/examples/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' < <(log_tail) && break 2
             sleep 1
         done
     done
-    if ! log_tail | grep -aqE '/examples/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%'; then
+    if ! grep -aqE '/examples/README\.txt.*[0-9]+/ *[0-9]+ +[0-9]+%' < <(log_tail); then
         echo "  *** the F3 viewer did not open README.txt"; rc=1
     fi
     for qj in 1 2 3; do               # F10 - quit the viewer, wait for panels
         send_raw "$(printf '\033[21~')"
         for qk in $(seq 1 5); do
-            log_tail 60 | grep -aq -- '-- /extras/examples --' && break 2
+            grep -aq -- '-- /extras/examples --' < <(log_tail 60) && break 2
             sleep 1
         done
     done
     for vj in 1 2 3; do               # F4 - editor, retry until it opens
         send_raw "$(printf '\033OS')"
         for vk in $(seq 1 6); do
-            log_tail | grep -aq 'L:\[' && break 2
+            grep -aq 'L:\[' < <(log_tail) && break 2
             sleep 1
         done
     done
-    if ! log_tail | grep -aq 'L:\['; then
+    if ! grep -aq 'L:\[' < <(log_tail); then
         echo "  *** the F4 editor did not open README.txt"; rc=1
     fi
     for qj in 1 2 3; do               # F10 - quit the editor, wait for panels
         send_raw "$(printf '\033[21~')"
         for qk in $(seq 1 5); do
-            log_tail 60 | grep -aq -- '-- /extras/examples --' && break 2
+            grep -aq -- '-- /extras/examples --' < <(log_tail 60) && break 2
             sleep 1
         done
     done
@@ -493,10 +493,10 @@ demo() {
     "${VM}" send 'echo __MC_QUIT__'
     local qm
     for qm in $(seq 1 40); do
-        log_tail 2000 | grep -aq '__MC_QUIT__' && break
+        grep -aq '__MC_QUIT__' < <(log_tail 2000) && break
         sleep 1
     done
-    if ! log_tail 2000 | grep -aq '__MC_QUIT__'; then
+    if ! grep -aq '__MC_QUIT__' < <(log_tail 2000); then
         echo "  *** mini-commander did not exit on F10"; rc=1; return $rc
     fi
     local t
@@ -597,7 +597,7 @@ demo() {
         "${VM}" send 'tiny-ide /extras/examples/tcc_hello.c'
         local ti_ready=0 ti
         for ti in $(seq 1 20); do
-            "${VM}" log 4000 2>/dev/null | grep -aq 'EXPLORER' && { ti_ready=1; break; }
+            grep -aq 'EXPLORER' < <("${VM}" log 4000 2>/dev/null) && { ti_ready=1; break; }
             sleep 1
         done
         if [[ ${ti_ready} != 1 ]]; then
@@ -608,8 +608,7 @@ demo() {
             for ti in $(seq 1 90); do
                 # The output pane is drawn cell by cell, so spaces already on
                 # the screen are not re-sent; match with and without them.
-                "${VM}" log 60 2>/dev/null |
-                    grep -aqE '1\+2\+\.\.\.\+10 ?= ?55' && { ti_done=1; break; }
+                grep -aqE '1\+2\+\.\.\.\+10 ?= ?55' < <("${VM}" log 60 2>/dev/null) && { ti_done=1; break; }
                 sleep 1
             done
             if [[ ${ti_done} != 1 ]]; then
@@ -635,7 +634,7 @@ demo() {
         "${VM}" send 'compositor &'
         local ns_ready=0
         for ns_i in $(seq 1 20); do
-            if "${VM}" log 4000 2>/dev/null | grep -aq 'Loading wallpaper'; then
+            if grep -aq 'Loading wallpaper' < <("${VM}" log 4000 2>/dev/null); then
                 ns_ready=1; break
             fi
             sleep 1
@@ -647,8 +646,7 @@ demo() {
             "${VM}" send '/extras/netsurf/netsurf -v file:///extras/netsurf-test.html &'
             local ns_parsed=0
             for ns_i in $(seq 1 30); do
-                if "${VM}" log 300000 2>/dev/null |
-                        grep -aq 'DOM to box conversion complete'; then
+                if grep -aq 'DOM to box conversion complete' < <("${VM}" log 300000 2>/dev/null); then
                     ns_parsed=1; break
                 fi
                 sleep 1
@@ -659,8 +657,7 @@ demo() {
                 "${VM}" send 'ps'
                 local ns_alive=0
                 for ns_i in $(seq 1 10); do
-                    if "${VM}" log 300000 2>/dev/null |
-                            grep -aqE '[0-9]+ +netsurf'; then
+                    if grep -aqE '[0-9]+ +netsurf' < <("${VM}" log 300000 2>/dev/null); then
                         ns_alive=1; break
                     fi
                     sleep 1

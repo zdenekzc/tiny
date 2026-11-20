@@ -270,16 +270,32 @@ bool start_build(struct app *app, bool then_run)
         return false;
     }
 
-    char *argv[16];
+    char *argv[24];
     int argc = 0;
     argv[argc++] = compiler;
     if (!cpp && has_tcc_b)
         argv[argc++] = tcc_b;
-    argv[argc++] = cpp ? "-std=c++17" : "-std=c11";
-    argv[argc++] = "-Wall";
-    argv[argc++] = "-Wextra";
-    argv[argc++] = "-O2";
-    argv[argc++] = "-g";
+    /* IDE_CFLAGS replaces the default flag set; useful on slow emulated
+       targets where tcc -O2 costs minutes (e.g. IDE_CFLAGS="-g0"). */
+    static char custom_flags[512];
+    bool custom_used = false;
+    const char *custom = getenv("IDE_CFLAGS");
+    if (custom && custom[0] && strlen(custom) < sizeof(custom_flags)) {
+        snprintf(custom_flags, sizeof(custom_flags), "%s", custom);
+        char *token = strtok(custom_flags, " \t");
+        while (token && argc < 18) {
+            argv[argc++] = token;
+            custom_used = true;
+            token = strtok(NULL, " \t");
+        }
+    }
+    if (!custom_used) {
+        argv[argc++] = cpp ? "-std=c++17" : "-std=c11";
+        argv[argc++] = "-Wall";
+        argv[argc++] = "-Wextra";
+        argv[argc++] = "-O2";
+        argv[argc++] = "-g";
+    }
     argv[argc++] = "-o";
     argv[argc++] = app->exe_path;
     argv[argc++] = tab->path;
