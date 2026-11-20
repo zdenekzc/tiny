@@ -28,10 +28,12 @@
 #          (_build/tcc-toaru/tcc-guest),
 #   4. downloads mini-commander and compiles it with the cross tcc
 #      (_build/output/mc),
-#   5. prepares the ramdisk payload with:
-#        /extras/mc, /extras/tcc/{bin/tcc,include,lib}, /extras/tcc_test,
-#        /extras/examples/*.c, compile_examples.sh (tcc also /bin/tcc)
-#        and installs mc additionally as /bin/mc inside the ramdisk,
+#   5. compiles Tiny IDE with the cross tcc (_build/output/tiny-ide),
+#   6. prepares the ramdisk payload with:
+#        /extras/mc, /extras/tiny-ide, /extras/hello (cross-compiled demo),
+#        /extras/tcc/{bin/tcc,include,lib}, /extras/tcc_test,
+#        /extras/examples/*.c, compile_examples.sh
+#        (mc, tcc and tiny-ide are also linked as /bin/* inside the ramdisk),
 #   6. makes _build/custom.iso (ramdisk embedded) plus _build/ramdisk.tgz
 #      and _build/kernel.mb,
 #   7. starts a HEADLESS (no window) control VM and verifies:
@@ -39,12 +41,15 @@
 #        - tcc inside ToaruOS compiles and runs /extras/examples/tcc_hello.c,
 #        - every example compiles and runs (/extras/compile_examples.sh),
 #        - mini-commander starts, draws its panels and quits with F10,
-#   8. starts a VISIBLE ToaruOS in QEMU and leaves it running.
+#        - tiny-ide draws its UI, F5 builds and runs the opened example
+#          with the in-guest tcc, and F10 returns to the shell,
+#   9. starts a VISIBLE ToaruOS in QEMU and leaves it running.
 #
 # Inside the visible ToaruOS open the Terminal and run:
 #
 #   tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
-#   mc /extras     (also /bin/mc)
+#   mc /extras          (also /bin/mc)
+#   tiny-ide /extras/examples/tcc_hello.c     (also /bin/tiny-ide)
 #
 # (When the VM is started by hand, pass the custom ISO or the initrd:
 #  ISO=_build/custom.iso ./scripts/toaru-vm.sh start
@@ -79,6 +84,10 @@ VM="${REPO_ROOT}/scripts/toaru-vm.sh"
 
 VISIBLE=${VISIBLE:-1}
 DEMO=${DEMO:-1}
+
+# every step below writes into _build; create it up front so the script also
+# works in a fresh checkout where nothing has been built yet
+mkdir -p "${BUILD_DIR}"
 
 die() { echo "error: $*" >&2; exit 1; }
 . "$REPO_ROOT/scripts/need.sh"   # need(): dependency check with package-install hints
@@ -166,7 +175,17 @@ if [[ ! -s "${NUKLEAR}" ]]; then
     "${REPO_ROOT}/nuklear-ide/fetch-nuklear.sh" || die "fetch-nuklear.sh"
 fi
 
-# -------------------------------------------- 6) ramdisk payload + custom ISO
+# -------------------------------------------------------------- 6) Tiny IDE
+# The ncurses IDE over the shared mc-toaru curses shim, compiled with the
+# cross tcc like mini-commander above (tiny-ide/build-toaru.sh).  Reused when
+# present; delete _build/output/tiny-ide to force a rebuild.
+TINY_IDE_BIN="${BUILD_DIR}/output/tiny-ide"
+if [[ ! -x "${TINY_IDE_BIN}" ]]; then
+    echo "== building Tiny IDE for ToaruOS ..."
+    "${REPO_ROOT}/tiny-ide/build-toaru.sh" || die "Tiny IDE for ToaruOS"
+fi
+
+# -------------------------------------------- 7) ramdisk payload + custom ISO
 # Every file from PUSH travels inside the ramdisk (ramdisk.igz), see the note
 # above; nothing goes to / except mc as /bin/mc.
 echo "== preparing the ramdisk payload ..."
@@ -179,11 +198,17 @@ if [[ -d "${REPO_ROOT}/user" ]]; then
 fi
 
 install -m 755 "${MC_BIN}"     "${PUSH}/mc"
+install -m 755 "${TINY_IDE_BIN}" "${PUSH}/tiny-ide"
 install -m 755 "${TCC_GUEST}"  "${PUSH}/tcc/bin/tcc"
 install -m 755 "${TEST_BIN}"   "${PUSH}/tcc_test"
 install -m 644 "${SYSROOT}/crt0.o" "${SYSROOT}/crti.o" "${SYSROOT}/crtn.o" \
                "${SYSROOT}/libc.a" "${SYSROOT}/libtcc1.a" "${PUSH}/tcc/lib/"
 cp -a "${SYSROOT}/include" "${PUSH}/tcc/include"
+
+# a cross-compiled hello: works even before any guest-side compilation
+# (the same /extras/hello as in run-arm64.sh)
+"${TCC}" -B"${SYSROOT}" -o "${PUSH}/hello" \
+    "${REPO_ROOT}/tests/examples/tcc_hello.c" || die "cross tcc hello"
 
 # example source texts + the tcc_test source text, all in /extras/examples
 mkdir -p "${PUSH}/examples"
@@ -231,11 +256,19 @@ Run them with:
 
     tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
     /extras/compile_examples.sh      (compiles and runs every *.c here)
+
+mini-commander:
+
+    mc /extras/examples      (also /bin/mc)
+
+Tiny IDE (also /bin/tiny-ide):
+
+    tiny-ide /extras/examples/tcc_hello.c
 GUEST_EOF
 
 cat > "${PUSH}/README.txt" <<'GUEST_EOF'
-ToaruOS + TinyCC + mini-commander
-=================================
+ToaruOS + TinyCC + mini-commander + Tiny IDE
+============================================
 
 All files are part of the ramdisk under /extras — no disk needs to be
 mounted and / stays clean for the desktop icons.
@@ -249,8 +282,13 @@ mini-commander:
 
     mc /            (also /bin/mc /)
 
+Tiny IDE (also /bin/tiny-ide):
+
+    tiny-ide /extras/examples/tcc_hello.c
+
 /extras/tcc contains the whole sysroot (include/, lib/crt0.o, libc.a,
-libtcc1.a); /extras/examples holds the example sources.
+libtcc1.a); /extras/examples holds the example sources; /extras/hello is
+a cross-compiled demo that runs without any guest-side compilation.
 GUEST_EOF
 
 # Build the bootable ISO (payload inside the ramdisk); it also emits
@@ -259,7 +297,7 @@ echo "== building ramdisk ISO ..."
 BOOT_ISO="${BUILD_DIR}/custom.iso"
 "${REPO_ROOT}/mc-toaru/mkiso.sh" "${BOOT_ISO}" || die "mkiso.sh failed"
 
-# ------------------------------------- 7) automatic check in a headless VM
+# ------------------------------------- 8) automatic check in a headless VM
 demo() {
     local rc=0 text
     # A leftover VM (e.g. from a previous run) would make "start" fail; the
@@ -346,11 +384,49 @@ demo() {
         echo "  *** the F9 hint does not have the blue background"; rc=1
     fi
 
+    # Tiny IDE: draws the blue ncurses UI over the shared shim, builds and
+    # runs the opened example with the guest tcc (F5) and quits with F10.
+    # It opens /extras/examples/tcc_hello.c (F5 saves only when the file was
+    # edited); a DIRECTORY argument would leave "No file open" and F5 would
+    # have nothing to build.  The wait greps only the recent lines, so the
+    # same string from the earlier compile_examples run cannot match.
+    "${VM}" send 'tiny-ide /extras/examples/tcc_hello.c'
+    local ti_ready=0 ti
+    for ti in $(seq 1 20); do
+        grep -aq 'EXPLORER' < <("${VM}" log 4000 2>/dev/null) && { ti_ready=1; break; }
+        sleep 1
+    done
+    if [[ ${ti_ready} != 1 ]]; then
+        echo "  *** tiny-ide did not draw its UI"; rc=1
+    else
+        send_raw "$(printf '\033[15~')"   # F5 - build + run
+        local ti_done=0
+        for ti in $(seq 1 90); do
+            # The output pane is drawn cell by cell, so spaces already on
+            # the screen are not re-sent; match with and without them.
+            grep -aqE '1\+2\+\.\.\.\+10 ?= ?55' < <("${VM}" log 60 2>/dev/null) && { ti_done=1; break; }
+            sleep 1
+        done
+        if [[ ${ti_done} != 1 ]]; then
+            echo "  *** tiny-ide F5 did not build and run the demo (55)"; rc=1
+        fi
+        send_raw "$(printf '\033[21~')"   # F10 - quit
+        sleep 1
+    fi
+    "${VM}" send 'echo __TI_QUIT__'
+    wait_for __TI_QUIT__ || { echo "  *** tiny-ide did not exit on F10"; rc=1; return $rc; }
+    text=$("${VM}" log 400000 2>/dev/null || true)
+    if ! awk -v m='__TI_QUIT__' '$0 == m { seen = 1; next }
+            seen && /root@livecd/ { found = 1 }
+            END { exit !found }' <<< "$text"; then
+        echo "  *** tiny-ide did not return to the shell"; rc=1
+    fi
+
     "${VM}" stop > /dev/null 2>&1 || true
     VM_TEST_STARTED=0
 
     if [[ $rc == 0 ]]; then
-        echo "== check OK: tcc_test, tcc inside ToaruOS, all examples and mini-commander work"
+        echo "== check OK: tcc_test, tcc inside ToaruOS, all examples, mini-commander and tiny-ide work"
     else
         echo "== check FOUND A PROBLEM (see above)"
     fi
@@ -364,7 +440,7 @@ if [[ "${DEMO}" == 1 ]]; then
     fi
 fi
 
-# --------------------------------------- 8) visible ToaruOS for the user
+# --------------------------------------- 9) visible ToaruOS for the user
 if [[ "${VISIBLE}" == 1 && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
     echo "warning: no DISPLAY - cannot open a QEMU window, using the serial line" >&2
     VISIBLE=0
@@ -389,6 +465,7 @@ In the ToaruOS window open the Terminal and run:
 
     tcc -o /tmp/hello /extras/examples/tcc_hello.c ; /tmp/hello
     mc /extras     (mc is also installed as /bin/mc)
+    tiny-ide /extras/examples/tcc_hello.c     (also installed as /bin/tiny-ide)
 
 If you start the VM later by hand, pass the custom ISO or boot without it:
 

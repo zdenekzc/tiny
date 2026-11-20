@@ -41,7 +41,7 @@ SRC_EXTRA=${SRC_EXTRA:-$TOP/_build/push}
 EXTRA_DIR=${EXTRA_DIR:-extras}   # payload subdirectory in the ramdisk; files must
                                  # NOT go to / — they would clutter the desktop icons
 OUT=${1:-$TOP/_build/custom.iso}
-mkdir -p "$TOP/_tmp"
+mkdir -p "$TOP/_tmp" "$TOP/_build"
 WORK=$(mktemp -d "$TOP/_tmp/mkiso.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
@@ -93,8 +93,12 @@ echo "== linking tcc as /bin/tcc"
 ln -s /extras/tcc/bin/tcc "$WORK/ramdisk/bin/tcc"
 
 # tiny-ide on PATH: same trick as mc (the payload binary stays in /extras).
-echo "== linking tiny-ide as /bin/tiny-ide"
-ln -s /extras/tiny-ide "$WORK/ramdisk/bin/tiny-ide"
+# Only when the payload carries it — a missing binary would leave a dangling
+# /bin/tiny-ide symlink behind.
+if [[ -f "$SRC_EXTRA/tiny-ide" ]]; then
+    echo "== linking tiny-ide as /bin/tiny-ide"
+    ln -s /extras/tiny-ide "$WORK/ramdisk/bin/tiny-ide"
+fi
 
 if [[ -d "$SRC_EXTRA" ]]; then
     echo "== copying payload from $SRC_EXTRA into /$EXTRA_DIR"
